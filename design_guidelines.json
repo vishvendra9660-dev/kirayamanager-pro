@@ -1,0 +1,56 @@
+{
+  "app_type": "dashboard",
+  "app_title": "Kirayadar Pro - Room & Rent Management",
+  "theme": "light-with-warm-earthy-accents",
+  "forbidden_color": "#1B93A4",
+  "forbidden_font": "space grotesk",
+  "typography": {
+    "heading_font": "Plus Jakarta Sans, sans-serif",
+    "body_font": "Inter, sans-serif",
+    "weights": ["400", "500", "600", "700"]
+  },
+  "colors": {
+    "primary": "#0F172A",
+    "accent_emerald": "#059669",
+    "accent_amber": "#D97706",
+    "accent_rose": "#E11D48",
+    "background": "#F8FAFC",
+    "surface": "#FFFFFF",
+    "border": "#E2E8F0",
+    "text_primary": "#0F172A",
+    "text_secondary": "#64748B"
+  },
+  "key_features": [
+    "Multiple Properties management (Alag-alag building/floor management)",
+    "Rooms CRUD with tenant info (Name, Phone, Start Date, Rent Amount, Security Deposit)",
+    "Vacant vs Occupied Room Highlighting (Khali rooms banner & badges)",
+    "Electricity Meter Readings with auto bill calculation (Current reading - Previous reading * Unit Rate)",
+    "Monthly Rent Records with Paid/Pending status toggle",
+    "WhatsApp Reminder share links with pre-formatted Hindi+English (Hinglish) message",
+    "Quick stats: Total Rent Collected, Pending Amount, Vacant Rooms count, Total Tenants"
+  ],
+  "image_urls": [
+    {
+      "category": "property_hero",
+      "url": "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODh8MHwxfHNlYXJjaHwzfHxtb2Rlcm4lMjBhcGFydG1lbnQlMjBidWlsZGluZyUyMGV4dGVyaW9yfGVufDB8fHx8MTc4OTQ2MjQ1NHww&ixlib=rb-4.1.0&q=85",
+      "description": "Modern apartment building for property header showcase"
+    },
+    {
+      "category": "courtyard",
+      "url": "https://images.unsplash.com/photo-1782814271825-63cc2bc1ce49?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1MTN8MHwxfHNlYXJjaHwxfHxyZXNpZGVudGlhbCUyMGJ1aWxkaW5nJTIwc3VubnklMjBjb3VydHlhcmR8ZW58MHx8fHwxNzg5NDYyNDU2fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Residential building courtyard context"
+    }
+  ],
+  "instructions_to_main_agent": [
+    "Build a robust React dashboard in App.js with fully functioning local storage persistence for properties, rooms, tenants, electricity meter readings, and rent ledger.",
+    "Use Hinglish labels (e.g. 'Rent Status: Paid / Pending', 'Bijli Bill Calculation', 'Vacant Rooms', 'WhatsApp Reminder Share').",
+    "Ensure all interactive elements and buttons include proper data-testid attributes.",
+    "Implement gorgeous Tailwind styling, generous spacing, badge indicators for Vacant rooms, and one-click WhatsApp share with customized reminder messages."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "Never use forbidden colors like teal green/teal blue (#1B93A4).",
+    "Never use transition: all.",
+    "Always ensure high contrast for text over backgrounds.",
+    "Include data-testid on all interactive elements."
+  ]
+}

@@ -1,0 +1,96 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    :root {
+        --background: 210 40% 98%;
+        --foreground: 222 47% 11%;
+        --card: 0 0% 100%;
+        --card-foreground: 222 47% 11%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 222 47% 11%;
+        --primary: 222 47% 11%;
+        --primary-foreground: 210 40% 98%;
+        --secondary: 210 40% 96%;
+        --secondary-foreground: 222 47% 11%;
+        --muted: 210 40% 96%;
+        --muted-foreground: 215 16% 47%;
+        --accent: 160 84% 30%;
+        --accent-foreground: 210 40% 98%;
+        --destructive: 344 84% 48%;
+        --destructive-foreground: 0 0% 98%;
+        --border: 214 32% 91%;
+        --input: 214 32% 91%;
+        --ring: 160 84% 30%;
+        --chart-1: 160 84% 30%;
+        --chart-2: 32 95% 44%;
+        --chart-3: 344 84% 48%;
+        --chart-4: 222 47% 11%;
+        --chart-5: 215 16% 47%;
+        --radius: 0.75rem;
+    }
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+    body {
+        @apply bg-background text-foreground;
+        font-family: 'Inter', sans-serif;
+        -webkit-font-smoothing: antialiased;
+    }
+    h1, h2, h3, h4, h5, h6, .font-display, button, .btn-font {
+        font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+}
+
+::selection {
+    background: hsl(160 84% 30% / 0.2);
+}
+
+@layer utilities {
+    .grain-overlay {
+        position: relative;
+    }
+    .grain-overlay::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        opacity: 0.035;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+    .card-lift {
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .card-lift:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 12px 32px -12px hsl(222 47% 11% / 0.18);
+    }
+}
+
+/* thin scrollbars */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+::-webkit-scrollbar-thumb {
+    background: hsl(214 32% 80%);
+    border-radius: 8px;
+}
+
+@media print {
+    .no-print {
+        display: none !important;
+    }
+    body {
+        background: #ffffff !important;
+    }
+    main {
+        padding: 0 !important;
+    }
+}
