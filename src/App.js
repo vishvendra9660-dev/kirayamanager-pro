@@ -2,13 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, onValue, set } from 'firebase/database';
 
-// Aapka Naya Firebase Realtime Database URL (Purana database 100% surakshit hai)
+// Aapka Naya Firebase Realtime Database URL
 const firebaseConfig = {
   databaseURL: "https://kirayamanager-pro-default-rtdb.firebaseio.com"
 };
 
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
+
+const ADMIN_UPI = "vs.kumar4@ybl";
+const FREE_ROOM_LIMIT = 5;
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -31,6 +34,12 @@ export default function App() {
   });
 
   const [allOwnersData, setAllOwnersData] = useState({});
+
+  // Subscription Modal State
+  const [showPayModal, setShowPayModal] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState('monthly'); // 'monthly' | 'annual'
+  const [subUtr, setSubUtr] = useState('');
+  const [subSuccess, setSubSuccess] = useState('');
 
   // Password Change Modal
   const [showChangeAdminPassModal, setShowChangeAdminPassModal] = useState(false);
@@ -68,7 +77,7 @@ export default function App() {
     else localStorage.removeItem('km_activeOwnerId');
   }, [authRole, loggedInTenantRoomId, activeOwnerId]);
 
-  // Firebase Realtime Listener: Listen to all owners for multi-tenancy
+  // Firebase Realtime Listener
   useEffect(() => {
     const ownersRef = ref(db, 'kirayaApp/owners');
     const unsubscribe = onValue(ownersRef, (snapshot) => {
@@ -89,7 +98,7 @@ export default function App() {
     return () => unsubscribe();
   }, [activeOwnerId]);
 
-  // Database Update Helpers (Isolated per owner)
+  // Database Update Helpers
   const updateRoomsInDb = (updatedRooms) => {
     setRooms(updatedRooms);
     if (activeOwnerId) {
@@ -255,6 +264,7 @@ export default function App() {
         phone: ownerRegisterForm.phone,
         password: cleanPass
       },
+      isPro: false,
       payConfig: {
         upiId: ownerRegisterForm.upiId || '9876543210@paytm',
         accHolder: ownerRegisterForm.name || 'Property Manager',
@@ -501,6 +511,16 @@ export default function App() {
 
   const handleSaveRoom = (e) => {
     e.preventDefault();
+
+    // FREE LIMIT CHECK (5 Rooms)
+    const currentOwner = allOwnersData[activeOwnerId] || {};
+    const isPro = currentOwner.isPro || false;
+    if (!editingRoomId && !isPro && rooms.length >= FREE_ROOM_LIMIT) {
+      setShowAddRoom(false);
+      setShowPayModal(true);
+      return;
+    }
+
     const finalPin = roomForm.pin || generateAutoPin(roomForm.phone, roomForm.dob) || '1234';
 
     let updated;
@@ -730,6 +750,38 @@ export default function App() {
     setMeterInputs(prevMap => ({ ...prevMap, [room.id]: { curr: '', meterPhoto: '' } }));
     alert(`रीडिंग सबमिट हो गई! ${units} यूनिट का ₹${bill} बिल में जुड़ गया।`);
   };
+
+  // Submit UTR for Subscription
+  const submitSubscriptionUtr = () => {
+    if (!subUtr || subUtr.trim().length < 8) {
+      alert('कृपया सही 12-अंक UPI Ref/UTR नंबर दर्ज करें।');
+      return;
+    }
+    const reqRef = ref(db, `kirayaApp/subscription_requests/${activeOwnerId}_${Date.now()}`);
+    set(reqRef, {
+      ownerId: activeOwnerId,
+      ownerName: allOwnersData[activeOwnerId]?.credentials?.name || '',
+      plan: selectedPlan,
+      utr: subUtr.trim(),
+      amount: selectedPlan === 'monthly' ? 199 : 1499,
+      date: new Date().toISOString()
+    }).then(() => {
+      set(ref(db, `kirayaApp/owners/${activeOwnerId}/isPro`), true);
+      setSubSuccess('पेमेंट विवरण प्राप्त हुआ! आपका Pro Unlimited Plan सक्रिय कर दिया गया है।');
+      setTimeout(() => {
+        setShowPayModal(false);
+        setSubSuccess('');
+        setSubUtr('');
+      }, 2500);
+    });
+  };
+
+  const currentOwnerProfile = allOwnersData[activeOwnerId] || {};
+  const isOwnerPro = currentOwnerProfile.isPro || false;
+
+  const planAmount = selectedPlan === 'monthly' ? 199 : 1499;
+  const ownerUpiUri = `upi://pay?pa=${ADMIN_UPI}&pn=KirayaManagerPro&am=${planAmount}&cu=INR&tn=ProUpgrade_${activeOwnerId}`;
+  const ownerQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(ownerUpiUri)}`;
 
   const occupiedList = rooms.filter(r => r.status === 'occupied');
   const totalBakayaAll = rooms.reduce((acc, r) => acc + getRoomBakaya(r), 0);
@@ -1061,10 +1113,17 @@ export default function App() {
           <span style={{ backgroundColor: '#059669', width: '32px', height: '32px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>🏠</span>
           <div>
             <div style={{ fontSize: '18px', fontWeight: '900', lineHeight: '1.1' }}>Kiraya Manager</div>
-            <div style={{ fontSize: '11px', color: '#94a3b8' }}>ID: {activeOwnerId}</div>
+            <div style={{ fontSize: '11px', color: '#94a3b8' }}>
+              ID: {activeOwnerId} {isOwnerPro ? <span style={{ color: '#10b981', fontWeight: 'bold' }}>⭐ PRO</span> : <span>({rooms.length}/{FREE_ROOM_LIMIT} Free)</span>}
+            </div>
           </div>
         </div>
         <div style={{ display: 'flex', gap: '6px' }}>
+          {!isOwnerPro && (
+            <button onClick={() => setShowPayModal(true)} style={{ backgroundColor: '#d97706', color: '#fff', border: 'none', padding: '6px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' }}>
+              ⚡ Pro
+            </button>
+          )}
           <button onClick={() => setShowChangeAdminPassModal(true)} style={{ backgroundColor: '#334155', color: '#fff', border: 'none', padding: '6px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' }}>
             🔑 Pass
           </button>
@@ -1266,7 +1325,15 @@ export default function App() {
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                 <h3 style={{ fontSize: '17px', fontWeight: '900', margin: 0 }}>कमरे (डैशबोर्ड हेतु क्लिक करें)</h3>
-                <button onClick={() => { setEditingRoomId(null); setRoomForm({ propName: properties[0]?.name || '', roomNo: '', status: 'occupied', tenant: '', phone: '', dob: '', idNumber: '', pin: '', rent: '', security: '', depositAmount: '', otherCharges: '', otherChargesNote: '', moveInDate: '2026-09-10', initialReading: '' }); setShowAddRoom(true); }} style={{ backgroundColor: '#059669', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '800', cursor: 'pointer' }}>
+                <button onClick={() => { 
+                  if (!isOwnerPro && rooms.length >= FREE_ROOM_LIMIT) {
+                    setShowPayModal(true);
+                    return;
+                  }
+                  setEditingRoomId(null); 
+                  setRoomForm({ propName: properties[0]?.name || '', roomNo: '', status: 'occupied', tenant: '', phone: '', dob: '', idNumber: '', pin: '', rent: '', security: '', depositAmount: '', otherCharges: '', otherChargesNote: '', moveInDate: '2026-09-10', initialReading: '' }); 
+                  setShowAddRoom(true); 
+                }} style={{ backgroundColor: '#059669', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '800', cursor: 'pointer' }}>
                   + नया कमरा
                 </button>
               </div>
@@ -1400,7 +1467,7 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 4: ADVANCED REPORT DASHBOARD WITH PAYMENT RECEIPTS & DETAILS */}
+          {/* TAB 4: ADVANCED REPORT DASHBOARD */}
           {activeTab === 'report' && (
             <div style={{ padding: '16px' }}>
               <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
@@ -1450,7 +1517,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* PRINTABLE PDF REPORT VIEW WITH PAYMENT DATES & MODES BREAKDOWN */}
+              {/* PRINTABLE PDF REPORT VIEW */}
               <div style={{ backgroundColor: '#fff', padding: '16px', borderRadius: '12px', border: '2px solid #cbd5e1' }}>
                 <div style={{ textAlign: 'center', borderBottom: '2px solid #0f172a', paddingBottom: '10px', marginBottom: '14px' }}>
                   <h2 style={{ margin: '0 0 4px 0', fontSize: '20px', fontWeight: '900' }}>
@@ -1587,7 +1654,7 @@ export default function App() {
         </div>
       )}
 
-      {/* 2 & 3. MODAL: ADD / EDIT ROOM WITH DOB, ID CARD & AUTO PIN */}
+      {/* 2 & 3. MODAL: ADD / EDIT ROOM */}
       {showAddRoom && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px', zIndex: 9999 }}>
           <div style={{ backgroundColor: '#fff', width: '100%', maxWidth: '370px', borderRadius: '14px', padding: '18px', maxHeight: '90vh', overflowY: 'auto' }}>
@@ -1618,26 +1685,26 @@ export default function App() {
                       const newAutoPin = generateAutoPin(newPhone, roomForm.dob);
                       setRoomForm({ 
                         ...roomForm, 
-                        phone: newPhone,
-                        pin: newAutoPin || roomForm.pin
+                        phone: newPhone, 
+                        pin: newAutoPin || roomForm.pin 
                       });
                     }} 
                     style={{ padding: '8px', border: '1px solid #cbd5e1', borderRadius: '6px' }} 
-                    required
+                    required 
                   />
 
                   <div>
                     <label style={{ fontSize: '11px', fontWeight: '700', color: '#475569' }}>जन्म तिथि (DOB) *:</label>
                     <input 
-                      type="date"
+                      type="date" 
                       value={roomForm.dob} 
                       onChange={e => {
                         const newDob = e.target.value;
                         const newAutoPin = generateAutoPin(roomForm.phone, newDob);
                         setRoomForm({ 
                           ...roomForm, 
-                          dob: newDob,
-                          pin: newAutoPin || roomForm.pin
+                          dob: newDob, 
+                          pin: newAutoPin || roomForm.pin 
                         });
                       }} 
                       style={{ width: '92%', padding: '8px', border: '1px solid #cbd5e1', borderRadius: '6px' }} 
@@ -1781,6 +1848,86 @@ export default function App() {
             >
               बंद करें
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* SUBSCRIPTION UPGRADE MODAL */}
+      {showPayModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px', zIndex: 99999 }}>
+          <div style={{ backgroundColor: '#fff', width: '100%', maxWidth: '380px', borderRadius: '16px', padding: '20px', textAlign: 'center', position: 'relative' }}>
+            <button onClick={() => setShowPayModal(false)} style={{ position: 'absolute', top: '12px', right: '14px', background: 'transparent', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#64748b' }}>✕</button>
+
+            <span style={{ fontSize: '36px' }}>👑</span>
+            <h3 style={{ margin: '6px 0 4px', fontSize: '18px', fontWeight: '900', color: '#0f172a' }}>Kiraya Manager Pro Upgrade</h3>
+            <p style={{ margin: '0 0 14px', fontSize: '12px', color: '#64748b' }}>
+              आपकी 5-कमरों की Free सीमा पूरी हो चुकी है। असीमित कमरों के लिए प्लान चुनें:
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '14px' }}>
+              <div
+                onClick={() => setSelectedPlan('monthly')}
+                style={{ border: selectedPlan === 'monthly' ? '2px solid #059669' : '1px solid #cbd5e1', padding: '10px 6px', borderRadius: '8px', cursor: 'pointer', backgroundColor: selectedPlan === 'monthly' ? '#ecfdf5' : '#fff' }}
+              >
+                <div style={{ fontWeight: '800', fontSize: '13px', color: '#0f172a' }}>Pro Monthly</div>
+                <div style={{ fontSize: '16px', fontWeight: '900', color: '#059669', margin: '4px 0' }}>₹199 / माह</div>
+                <div style={{ fontSize: '10px', color: '#64748b' }}>अनलिमिटेड कमरे</div>
+              </div>
+
+              <div
+                onClick={() => setSelectedPlan('annual')}
+                style={{ border: selectedPlan === 'annual' ? '2px solid #2563eb' : '1px solid #cbd5e1', padding: '10px 6px', borderRadius: '8px', cursor: 'pointer', backgroundColor: selectedPlan === 'annual' ? '#eff6ff' : '#fff', position: 'relative' }}
+              >
+                <span style={{ position: 'absolute', top: '-7px', right: '6px', backgroundColor: '#dc2626', color: '#fff', fontSize: '8px', padding: '1px 5px', borderRadius: '8px', fontWeight: '900' }}>SAVE 35%</span>
+                <div style={{ fontWeight: '800', fontSize: '13px', color: '#0f172a' }}>Pro Annual</div>
+                <div style={{ fontSize: '16px', fontWeight: '900', color: '#2563eb', margin: '4px 0' }}>₹1,499 / वर्ष</div>
+                <div style={{ fontSize: '10px', color: '#64748b' }}>पूरे साल की बचत</div>
+              </div>
+            </div>
+
+            <a
+              href={ownerUpiUri}
+              style={{ display: 'block', backgroundColor: '#059669', color: '#fff', textDecoration: 'none', padding: '11px', borderRadius: '8px', fontWeight: '900', fontSize: '13px', marginBottom: '10px' }}
+            >
+              📲 Pay ₹{planAmount} via PhonePe / GPay / Paytm
+            </a>
+
+            <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '6px' }}>या नीचे QR कोड स्कैन करके पे करें:</div>
+
+            <img
+              src={ownerQrUrl}
+              alt="Admin UPI QR"
+              style={{ width: '150px', height: '150px', margin: '0 auto 8px auto', display: 'block', border: '1px solid #cbd5e1', borderRadius: '8px' }}
+            />
+
+            <div style={{ fontSize: '11px', color: '#475569', marginBottom: '10px' }}>
+              UPI ID: <b>{ADMIN_UPI}</b>
+            </div>
+
+            <div style={{ borderTop: '1px dashed #cbd5e1', paddingTop: '10px' }}>
+              <div style={{ fontSize: '11px', fontWeight: '700', color: '#475569', marginBottom: '6px' }}>पेमेंट के बाद 12-अंक UPI Ref / UTR दर्ज करें:</div>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <input
+                  type="text"
+                  placeholder="उदा: 426812345678"
+                  value={subUtr}
+                  onChange={e => setSubUtr(e.target.value)}
+                  style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '12px', fontWeight: '700' }}
+                />
+                <button
+                  onClick={submitSubscriptionUtr}
+                  style={{ backgroundColor: '#0f172a', color: '#fff', border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '900', fontSize: '12px', cursor: 'pointer' }}
+                >
+                  Activate
+                </button>
+              </div>
+            </div>
+
+            {subSuccess && (
+              <div style={{ marginTop: '10px', backgroundColor: '#ecfdf5', color: '#065f46', padding: '8px', borderRadius: '6px', fontSize: '12px', fontWeight: '800' }}>
+                {subSuccess}
+              </div>
+            )}
           </div>
         </div>
       )}
