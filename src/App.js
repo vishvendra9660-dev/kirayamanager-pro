@@ -1,14 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, onValue, set } from 'firebase/database';
+import { getAuth, RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth';
 
-// Aapka Naya Firebase Realtime Database URL
+// Aapke Firebase Console ki actual details
 const firebaseConfig = {
-  databaseURL: "https://kirayamanager-pro-default-rtdb.firebaseio.com"
+  apiKey: "AIzaSyDm7SPCrC2JwS65_CVaB2Dn1tgqDc68J-M",
+  authDomain: "kirayamanager-pro.firebaseapp.com",
+  databaseURL: "https://kirayamanager-pro-default-rtdb.firebaseio.com",
+  projectId: "kirayamanager-pro",
+  storageBucket: "kirayamanager-pro.firebasestorage.app",
+  messagingSenderId: "505648300755",
+  appId: "1:505648300755:web:cd29900395ac6bfeb78a26",
+  measurementId: "G-3KLS1GSHMV"
 };
 
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
+const auth = getAuth(app);
 
 const ADMIN_UPI = "vs.kumar4@ybl";
 const FREE_ROOM_LIMIT = 5;
@@ -16,7 +25,7 @@ const FREE_ROOM_LIMIT = 5;
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   
-  // Persistent Auth Session via LocalStorage
+  // Persistent Auth Session
   const [authRole, setAuthRole] = useState(() => localStorage.getItem('km_authRole') || 'login_choice');
   const [loggedInTenantRoomId, setLoggedInTenantRoomId] = useState(() => localStorage.getItem('km_tenantRoomId') || null);
   const [activeOwnerId, setActiveOwnerId] = useState(() => localStorage.getItem('km_activeOwnerId') || null);
@@ -33,11 +42,18 @@ export default function App() {
     upiId: '' 
   });
 
+  // Phone OTP States
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
+  const [confirmationResult, setConfirmationResult] = useState(null);
+  const [isPhoneVerified, setIsPhoneVerified] = useState(false);
+  const [otpLoading, setOtpLoading] = useState(false);
+
   const [allOwnersData, setAllOwnersData] = useState({});
 
   // Subscription Modal State
   const [showPayModal, setShowPayModal] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState('monthly'); // 'monthly' | 'annual'
+  const [selectedPlan, setSelectedPlan] = useState('monthly');
   const [subUtr, setSubUtr] = useState('');
   const [subSuccess, setSubSuccess] = useState('');
 
@@ -50,7 +66,7 @@ export default function App() {
   });
 
   const [tenantLoginForm, setTenantLoginForm] = useState({ phone: '', pin: '' });
-  const [loginMode, setLoginMode] = useState('tenant'); // 'tenant' ya 'owner'
+  const [loginMode, setLoginMode] = useState('tenant');
 
   const [selectedRoomId, setSelectedRoomId] = useState(null);
   const [propertyFilter, setPropertyFilter] = useState('all');
@@ -176,7 +192,7 @@ export default function App() {
     endDate: ''
   });
 
-  // SMART RENT CALCULATION ENGINE
+  // Smart Rent Calculation Engine
   const calculateChargeableMonths = (room) => {
     if (!room.moveInDate) return 0;
     const moveIn = new Date(room.moveInDate);
@@ -238,14 +254,74 @@ export default function App() {
     window.location.assign(upiUri);
   };
 
-  // MULTI-OWNER REGISTRATION & LOGIN
+  // Setup reCAPTCHA
+  const setupRecaptcha = () => {
+    if (!window.recaptchaVerifier) {
+      window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+        size: 'invisible',
+        callback: () => {}
+      });
+    }
+  };
+
+  // Send OTP
+  const handleSendOtp = async () => {
+    const cleanNum = ownerRegisterForm.phone.replace(/\D/g, '');
+    if (cleanNum.length !== 10) {
+      alert('कृपया सही 10-अंकों का मोबाइल नंबर दर्ज करें!');
+      return;
+    }
+    setOtpLoading(true);
+    try {
+      setupRecaptcha();
+      const appVerifier = window.recaptchaVerifier;
+      const formatPhone = `+91${cleanNum}`;
+      const confirmation = await signInWithPhoneNumber(auth, formatPhone, appVerifier);
+      setConfirmationResult(confirmation);
+      setOtpSent(true);
+      alert(`OTP सफलतापूर्क +91 ${cleanNum} पर भेजा गया!`);
+    } catch (err) {
+      alert('OTP भेजने में समस्या आई: ' + err.message);
+      if (window.recaptchaVerifier) {
+        window.recaptchaVerifier.clear();
+        window.recaptchaVerifier = null;
+      }
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  // Verify OTP
+  const handleVerifyOtp = async () => {
+    if (!otpCode || otpCode.length < 6) {
+      alert('कृपया 6-अंकों का सही OTP भरें!');
+      return;
+    }
+    setOtpLoading(true);
+    try {
+      await confirmationResult.confirm(otpCode);
+      setIsPhoneVerified(true);
+      alert('✓ मोबाइल नंबर सफलतापूर्वक 100% सत्यापित हो गया!');
+    } catch (err) {
+      alert('गलत OTP! कृपया दोबारा चेक करें।');
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  // Register Owner
   const handleOwnerRegister = (e) => {
     e.preventDefault();
+    if (!isPhoneVerified) {
+      alert('कृपया पहले अपने मोबाइल नंबर को OTP द्वारा सत्यापित करें!');
+      return;
+    }
+
     const cleanId = ownerRegisterForm.id.trim().toLowerCase();
     const cleanPass = ownerRegisterForm.password.trim();
 
     if (cleanPass.length !== 8) {
-      alert('पासवर्ड ठीक 8 अक्षरों (characters) का होना चाहिए!');
+      alert('पासवर्ड ठीक 8 अक्षरों का होना चाहिए!');
       return;
     }
     if (cleanPass !== ownerRegisterForm.confirmPassword.trim()) {
@@ -265,6 +341,7 @@ export default function App() {
         password: cleanPass
       },
       isPro: false,
+      isVerifiedOwner: true,
       payConfig: {
         upiId: ownerRegisterForm.upiId || '9876543210@paytm',
         accHolder: ownerRegisterForm.name || 'Property Manager',
@@ -279,16 +356,17 @@ export default function App() {
     setActiveOwnerId(cleanId);
     setAuthRole('owner');
     setIsOwnerRegistering(false);
-    alert('आपका मकान मालिक खाता सफलतापूर्वक बन गया है!');
+    alert('आपका 100% वेरिफ़ाइड मकान मालिक खाता सफलतापूर्वक बन गया है!');
   };
 
+  // Login Owner
   const handleOwnerLogin = (e) => {
     e.preventDefault();
     const cleanId = ownerLoginForm.id.trim().toLowerCase();
     const cleanPass = ownerLoginForm.password.trim();
 
     if (cleanPass.length !== 8) {
-      alert('पासवर्ड ठीक 8 अक्षरों (characters) का होना चाहिए!');
+      alert('पासवर्ड ठीक 8 अक्षरों का होना चाहिए!');
       return;
     }
 
@@ -314,7 +392,7 @@ export default function App() {
       return;
     }
     if (newP.length !== 8) {
-      alert('नया पासवर्ड ठीक 8 अक्षरों (characters) का होना आवश्यक है!');
+      alert('नया पासवर्ड ठीक 8 अक्षरों का होना आवश्यक है!');
       return;
     }
     if (newP !== confP) {
@@ -328,7 +406,7 @@ export default function App() {
     setShowChangeAdminPassModal(false);
   };
 
-  // MULTI-TENANT LOGIN
+  // Login Tenant
   const handleTenantLogin = (e) => {
     e.preventDefault();
     const phoneInput = tenantLoginForm.phone.trim().replace(/\D/g, '');
@@ -512,7 +590,7 @@ export default function App() {
   const handleSaveRoom = (e) => {
     e.preventDefault();
 
-    // FREE LIMIT CHECK (5 Rooms)
+    // 5 Rooms Free Limit Check
     const currentOwner = allOwnersData[activeOwnerId] || {};
     const isPro = currentOwner.isPro || false;
     if (!editingRoomId && !isPro && rooms.length >= FREE_ROOM_LIMIT) {
@@ -792,6 +870,7 @@ export default function App() {
   if (authRole === 'login_choice') {
     return (
       <div style={{ maxWidth: '440px', margin: '0 auto', minHeight: '100vh', backgroundColor: '#f1f5f9', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '20px', fontFamily: '-apple-system, sans-serif' }}>
+        <div id="recaptcha-container"></div>
         <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: '24px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', border: '1px solid #e2e8f0' }}>
           <div style={{ textAlign: 'center', marginBottom: '20px' }}>
             <div style={{ backgroundColor: '#059669', width: '50px', height: '50px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '26px', margin: '0 auto 10px auto' }}>🏠</div>
@@ -850,7 +929,7 @@ export default function App() {
           ) : (
             isOwnerRegistering ? (
               <form onSubmit={handleOwnerRegister} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <strong style={{ fontSize: '14px', color: '#0f172a' }}>नया मकान मालिक खाता बनाएं (New Sign Up)</strong>
+                <strong style={{ fontSize: '14px', color: '#0f172a' }}>नया मकान मालिक खाता बनाएं (100% Verified)</strong>
                 
                 <input
                   type="text"
@@ -868,14 +947,59 @@ export default function App() {
                   style={{ width: '92%', padding: '9px', border: '2px solid #cbd5e1', borderRadius: '6px', fontSize: '13px' }}
                   required
                 />
-                <input
-                  type="tel"
-                  placeholder="मोबाइल नंबर *"
-                  value={ownerRegisterForm.phone}
-                  onChange={e => setOwnerRegisterForm({ ...ownerRegisterForm, phone: e.target.value })}
-                  style={{ width: '92%', padding: '9px', border: '2px solid #cbd5e1', borderRadius: '6px', fontSize: '13px' }}
-                  required
-                />
+
+                {/* MOBILE + SMS OTP SECTION */}
+                <div>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <input
+                      type="tel"
+                      disabled={isPhoneVerified}
+                      placeholder="मोबाइल नंबर (10 अंक) *"
+                      value={ownerRegisterForm.phone}
+                      onChange={e => setOwnerRegisterForm({ ...ownerRegisterForm, phone: e.target.value })}
+                      style={{ flex: 1, padding: '9px', border: isPhoneVerified ? '2px solid #10b981' : '2px solid #cbd5e1', borderRadius: '6px', fontSize: '13px', backgroundColor: isPhoneVerified ? '#f0fdf4' : '#fff' }}
+                      required
+                    />
+                    {!isPhoneVerified && (
+                      <button
+                        type="button"
+                        onClick={handleSendOtp}
+                        disabled={otpLoading}
+                        style={{ backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '8px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' }}
+                      >
+                        {otpLoading ? 'भेज रहे हैं...' : (otpSent ? 'पुनः भेजें' : 'OTP भेजें')}
+                      </button>
+                    )}
+                  </div>
+
+                  {otpSent && !isPhoneVerified && (
+                    <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+                      <input
+                        type="text"
+                        maxLength={6}
+                        placeholder="6-अंकों का SMS OTP डालें"
+                        value={otpCode}
+                        onChange={e => setOtpCode(e.target.value)}
+                        style={{ flex: 1, padding: '8px', border: '2px solid #0284c7', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold' }}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleVerifyOtp}
+                        disabled={otpLoading}
+                        style={{ backgroundColor: '#059669', color: '#fff', border: 'none', padding: '8px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' }}
+                      >
+                        सत्यापित करें ✓
+                      </button>
+                    </div>
+                  )}
+
+                  {isPhoneVerified && (
+                    <div style={{ color: '#059669', fontSize: '11px', fontWeight: 'bold', marginTop: '4px' }}>
+                      ✓ मोबाइल नंबर OTP द्वारा 100% सत्यापित हो चुका है
+                    </div>
+                  )}
+                </div>
+
                 <input
                   type="text"
                   placeholder="UPI ID (किराया प्राप्त करने हेतु) *"
@@ -903,8 +1027,12 @@ export default function App() {
                   required
                 />
 
-                <button type="submit" style={{ width: '100%', backgroundColor: '#059669', color: '#fff', border: 'none', padding: '12px', borderRadius: '8px', fontWeight: '900', fontSize: '14px', cursor: 'pointer', marginTop: '4px' }}>
-                  रजिस्टर करें व डैशबोर्ड खोलें
+                <button 
+                  type="submit" 
+                  disabled={!isPhoneVerified}
+                  style={{ width: '100%', backgroundColor: isPhoneVerified ? '#059669' : '#94a3b8', color: '#fff', border: 'none', padding: '12px', borderRadius: '8px', fontWeight: '900', fontSize: '14px', cursor: isPhoneVerified ? 'pointer' : 'not-allowed', marginTop: '4px' }}
+                >
+                  {isPhoneVerified ? 'रजिस्टर करें व डैशबोर्ड खोलें 🚀' : 'पहले OTP सत्यापित करें'}
                 </button>
                 <div style={{ textAlign: 'center', marginTop: '4px' }}>
                   <span onClick={() => setIsOwnerRegistering(false)} style={{ fontSize: '12px', color: '#2563eb', cursor: 'pointer', fontWeight: '700' }}>
@@ -942,7 +1070,7 @@ export default function App() {
                 </button>
                 
                 <div style={{ textAlign: 'center', marginTop: '4px' }}>
-                  <span onClick={() => setIsOwnerRegistering(true)} style={{ fontSize: '12px', color: '#059669', cursor: 'pointer', fontWeight: '800' }}>
+                  <span onClick={() => { setIsOwnerRegistering(true); setIsPhoneVerified(false); setOtpSent(false); }} style={{ fontSize: '12px', color: '#059669', cursor: 'pointer', fontWeight: '800' }}>
                     + नया मकान मालिक अकाउंट बनाएं (Register Here)
                   </span>
                 </div>
@@ -988,7 +1116,6 @@ export default function App() {
         </header>
 
         <div style={{ padding: '16px' }}>
-          {/* PASSWORD HINT CARD */}
           <div style={{ backgroundColor: '#eff6ff', borderRadius: '12px', padding: '12px 14px', border: '1px solid #bfdbfe', marginBottom: '14px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span style={{ fontSize: '16px' }}>🔐</span>
@@ -1114,7 +1241,7 @@ export default function App() {
           <div>
             <div style={{ fontSize: '18px', fontWeight: '900', lineHeight: '1.1' }}>Kiraya Manager</div>
             <div style={{ fontSize: '11px', color: '#94a3b8' }}>
-              ID: {activeOwnerId} {isOwnerPro ? <span style={{ color: '#10b981', fontWeight: 'bold' }}>⭐ PRO</span> : <span>({rooms.length}/{FREE_ROOM_LIMIT} Free)</span>}
+              ID: {activeOwnerId} <span style={{ color: '#10b981' }}>✓ Verified</span> {isOwnerPro ? <span style={{ color: '#10b981', fontWeight: 'bold' }}>⭐ PRO</span> : <span>({rooms.length}/{FREE_ROOM_LIMIT} Free)</span>}
             </div>
           </div>
         </div>
@@ -1150,7 +1277,6 @@ export default function App() {
             </div>
           </div>
           
-          {/* Main Info Card */}
           <div style={{ backgroundColor: '#fff', borderRadius: '14px', padding: '16px', border: '2px solid #e2e8f0', marginBottom: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
@@ -1185,7 +1311,6 @@ export default function App() {
             )}
           </div>
 
-          {/* VIVARAN: ITEMIZED FINANCIAL SUMMARY */}
           <div style={{ backgroundColor: '#fff', borderRadius: '14px', padding: '14px', border: '2px solid #e2e8f0', marginBottom: '16px' }}>
             <strong style={{ fontSize: '14px', display: 'block', marginBottom: '8px', color: '#0f172a' }}>📋 सम्पूर्ण मद-वार विवरण (Itemized Breakdown):</strong>
             <div style={{ fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -1214,7 +1339,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* ITIHAS 1: PAYMENT HISTORY LIST */}
           <div style={{ backgroundColor: '#fff', borderRadius: '14px', padding: '16px', border: '2px solid #e2e8f0', marginBottom: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
               <strong style={{ fontSize: '14px', color: '#0f172a' }}>📜 जमा भुगतान इतिहास (Payment History)</strong>
@@ -1247,7 +1371,6 @@ export default function App() {
             )}
           </div>
 
-          {/* ITIHAS 2: ELECTRICITY READING HISTORY */}
           <div style={{ backgroundColor: '#fff', borderRadius: '14px', padding: '16px', border: '2px solid #e2e8f0', marginBottom: '16px' }}>
             <strong style={{ fontSize: '14px', display: 'block', marginBottom: '10px', color: '#0f172a' }}>⚡ बिजली मीटर रीडिंग इतिहास (Electricity History)</strong>
             {(selectedRoom.electricityHistory || []).length === 0 ? (
@@ -1272,7 +1395,6 @@ export default function App() {
             )}
           </div>
 
-          {/* ACTION: ADD NEW METER READING DIRECTLY */}
           <div style={{ backgroundColor: '#fff', borderRadius: '14px', padding: '16px', border: '2px solid #e2e8f0', marginBottom: '16px' }}>
             <strong style={{ fontSize: '14px', display: 'block', marginBottom: '8px' }}>⚡ नई बिजली मीटर रीडिंग डालें</strong>
             <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '8px' }}>
@@ -1301,7 +1423,6 @@ export default function App() {
         </div>
       ) : (
         <>
-          {/* TAB 1: MAIN DASHBOARD */}
           {activeTab === 'dashboard' && (
             <div style={{ padding: '16px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '16px' }}>
@@ -1374,7 +1495,6 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 2: PROPERTIES */}
           {activeTab === 'properties' && (
             <div style={{ padding: '16px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
@@ -1424,7 +1544,6 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 3: KHATA BAHI (LEDGER) */}
           {activeTab === 'khata' && (
             <div style={{ padding: '16px' }}>
               <h2 style={{ margin: '0 0 14px 0', fontSize: '18px', fontWeight: '900' }}>📖 खाता बही (Ledger Summary)</h2>
@@ -1467,7 +1586,6 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 4: ADVANCED REPORT DASHBOARD */}
           {activeTab === 'report' && (
             <div style={{ padding: '16px' }}>
               <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
@@ -1482,7 +1600,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* FILTERS */}
               <div className="no-print" style={{ backgroundColor: '#fff', padding: '14px', borderRadius: '12px', border: '2px solid #cbd5e1', marginBottom: '14px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
                   <div>
@@ -1517,7 +1634,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* PRINTABLE PDF REPORT VIEW */}
               <div style={{ backgroundColor: '#fff', padding: '16px', borderRadius: '12px', border: '2px solid #cbd5e1' }}>
                 <div style={{ textAlign: 'center', borderBottom: '2px solid #0f172a', paddingBottom: '10px', marginBottom: '14px' }}>
                   <h2 style={{ margin: '0 0 4px 0', fontSize: '20px', fontWeight: '900' }}>
