@@ -3,7 +3,7 @@ import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, onValue, set } from 'firebase/database';
 import { getAuth, RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth';
 
-// Aapke Firebase Console ki actual details
+// Firebase Configuration (Updated with your live project config)
 const firebaseConfig = {
   apiKey: "AIzaSyDm7SPCrC2JwS65_CVaB2Dn1tgqDc68J-M",
   authDomain: "kirayamanager-pro.firebaseapp.com",
@@ -192,7 +192,7 @@ export default function App() {
     endDate: ''
   });
 
-  // Smart Rent Calculation Engine
+  // SMART RENT CALCULATION ENGINE
   const calculateChargeableMonths = (room) => {
     if (!room.moveInDate) return 0;
     const moveIn = new Date(room.moveInDate);
@@ -254,7 +254,7 @@ export default function App() {
     window.location.assign(upiUri);
   };
 
-  // Setup reCAPTCHA
+  // Setup reCAPTCHA for Phone OTP
   const setupRecaptcha = () => {
     if (!window.recaptchaVerifier) {
       window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
@@ -264,7 +264,7 @@ export default function App() {
     }
   };
 
-  // Send OTP
+  // Send OTP Function
   const handleSendOtp = async () => {
     const cleanNum = ownerRegisterForm.phone.replace(/\D/g, '');
     if (cleanNum.length !== 10) {
@@ -291,7 +291,7 @@ export default function App() {
     }
   };
 
-  // Verify OTP
+  // Verify OTP Function
   const handleVerifyOtp = async () => {
     if (!otpCode || otpCode.length < 6) {
       alert('कृपया 6-अंकों का सही OTP भरें!');
@@ -309,7 +309,7 @@ export default function App() {
     }
   };
 
-  // Register Owner
+  // MULTI-OWNER REGISTRATION & LOGIN
   const handleOwnerRegister = (e) => {
     e.preventDefault();
     if (!isPhoneVerified) {
@@ -359,14 +359,13 @@ export default function App() {
     alert('आपका 100% वेरिफ़ाइड मकान मालिक खाता सफलतापूर्वक बन गया है!');
   };
 
-  // Login Owner
   const handleOwnerLogin = (e) => {
     e.preventDefault();
     const cleanId = ownerLoginForm.id.trim().toLowerCase();
     const cleanPass = ownerLoginForm.password.trim();
 
     if (cleanPass.length !== 8) {
-      alert('पासवर्ड ठीक 8 अक्षरों का होना चाहिए!');
+      alert('पासवर्ड ठीक 8 अक्षरों (characters) का होना चाहिए!');
       return;
     }
 
@@ -406,7 +405,7 @@ export default function App() {
     setShowChangeAdminPassModal(false);
   };
 
-  // Login Tenant
+  // MULTI-TENANT LOGIN
   const handleTenantLogin = (e) => {
     e.preventDefault();
     const phoneInput = tenantLoginForm.phone.trim().replace(/\D/g, '');
@@ -538,12 +537,12 @@ export default function App() {
       
       const paymentsList = r.payments || [];
       if (paymentsList.length > 0) {
-        summaryText += `  👉 जमा भुगतान विवरण:\n`;
+        summaryText += `   👉 जमा भुगतान विवरण:\n`;
         paymentsList.forEach(p => {
-          summaryText += `    - ₹${p.amount} (${p.mode}) दिनांक: ${p.date} ${p.note ? `[${p.note}]` : ''}\n`;
+          summaryText += `     - ₹${p.amount} (${p.mode}) दिनांक: ${p.date} ${p.note ? `[${p.note}]` : ''}\n`;
         });
       } else {
-        summaryText += `  👉 कोई भुगतान जमा नहीं हुआ है।\n`;
+        summaryText += `   👉 कोई भुगतान जमा नहीं हुआ है।\n`;
       }
     });
 
@@ -581,8 +580,31 @@ export default function App() {
       depositAmount: String(room.depositAmount || ''),
       otherCharges: String(room.otherCharges || ''),
       otherChargesNote: room.otherChargesNote || '',
-      moveInDate: room.moveInDate || '2026-09-10',
+      moveInDate: room.moveInDate || new Date().toISOString().split('T')[0],
       initialReading: String(room.initialReading || '')
+    });
+    setShowAddRoom(true);
+  };
+
+  // Naye Kirayedar ko Occupied karne ka Modal
+  const openNewTenantOccupiedModal = (room) => {
+    setEditingRoomId(room.id);
+    setRoomForm({
+      propName: room.propName || (properties[0]?.name || ''),
+      roomNo: room.roomNo || '',
+      status: 'occupied',
+      tenant: '',
+      phone: '',
+      dob: '',
+      idNumber: '',
+      pin: '',
+      rent: String(room.rent || ''),
+      security: '',
+      depositAmount: '',
+      otherCharges: '',
+      otherChargesNote: '',
+      moveInDate: new Date().toISOString().split('T')[0],
+      initialReading: String(room.currentReading || room.initialReading || '')
     });
     setShowAddRoom(true);
   };
@@ -590,7 +612,7 @@ export default function App() {
   const handleSaveRoom = (e) => {
     e.preventDefault();
 
-    // 5 Rooms Free Limit Check
+    // FREE LIMIT CHECK (5 Rooms)
     const currentOwner = allOwnersData[activeOwnerId] || {};
     const isPro = currentOwner.isPro || false;
     if (!editingRoomId && !isPro && rooms.length >= FREE_ROOM_LIMIT) {
@@ -603,6 +625,9 @@ export default function App() {
 
     let updated;
     if (editingRoomId) {
+      const existingRoom = rooms.find(r => r.id === editingRoomId);
+      const isSwitchingToNewTenant = existingRoom && existingRoom.status === 'vacant' && roomForm.status === 'occupied';
+
       updated = rooms.map(r => r.id === editingRoomId ? {
         ...r,
         propName: roomForm.propName,
@@ -619,9 +644,15 @@ export default function App() {
         otherCharges: Number(roomForm.otherCharges) || 0,
         otherChargesNote: roomForm.otherChargesNote,
         moveInDate: roomForm.moveInDate,
-        initialReading: Number(roomForm.initialReading) || 0
+        initialReading: Number(roomForm.initialReading) || 0,
+        currentReading: Number(roomForm.initialReading) || 0,
+        isVacated: roomForm.status === 'vacant',
+        vacateDate: roomForm.status === 'vacant' ? (r.vacateDate || new Date().toISOString().split('T')[0]) : null,
+        // Naya kirayedaar aane par active bill & payments reset, purana data history me surakshit rahega
+        payments: isSwitchingToNewTenant ? [] : (r.payments || []),
+        electricityHistory: isSwitchingToNewTenant ? [] : (r.electricityHistory || [])
       } : r);
-      alert('कमरा व किरायेदार विवरण सफलतापूर्वक अपडेट हो गया!');
+      alert(isSwitchingToNewTenant ? 'नया किरायेदार सफलतापूर्वक दर्ज हो गया!' : 'कमरा व किरायेदार विवरण सफलतापूर्वक अपडेट हो गया!');
     } else {
       const newR = {
         id: String(Date.now()),
@@ -644,7 +675,8 @@ export default function App() {
         isVacated: roomForm.status === 'vacant',
         vacateDate: roomForm.status === 'vacant' ? new Date().toISOString().split('T')[0] : null,
         electricityHistory: [],
-        payments: []
+        payments: [],
+        tenantHistory: [] // Purane tenants ka record yahan save hoga
       };
       updated = [newR, ...rooms];
       alert('नया कमरा सुरक्षित हो गया!');
@@ -654,6 +686,7 @@ export default function App() {
     setEditingRoomId(null);
   };
 
+  // Vacate Room Handler - Archive Data to History
   const handleToggleRoomVacate = (room) => {
     if (room.status === 'occupied') {
       const chargeable = calculateChargeableMonths({ ...room, isVacated: true, vacateDate: new Date().toISOString().split('T')[0] });
@@ -662,27 +695,58 @@ export default function App() {
       const grossBakaya = Math.max(0, totalDue - getPaidTotal(room));
       const deposit = Number(room.security || 0) + Number(room.depositAmount || 0);
 
-      let msg = `कमरा खाली करने का हिसाब:\n\n• चार्जेबल माह: ${chargeable} Month\n• कुल देय बकाया: ₹${grossBakaya}\n• जमा सिक्योरिटी/डिपॉजिट: ₹${deposit}\n\n`;
+      let msg = `कमरा खाली करने का हिसाब:\n\n• किरायेदार: ${room.tenant}\n• चार्जेबल माह: ${chargeable} Month\n• कुल देय बकाया: ₹${grossBakaya}\n• जमा सिक्योरिटी/डिपॉजिट: ₹${deposit}\n\n`;
       if (deposit >= grossBakaya) {
         msg += `👉 किरायेदार को रिफंड करने योग्य राशि: ₹${deposit - grossBakaya}`;
       } else {
         msg += `👉 किरायेदार से वसूलने योग्य शेष राशि: ₹${grossBakaya - deposit}`;
       }
-      msg += `\n\nक्या आप वाकई कमरा खाली (Vacant) मार्क करना चाहते हैं?`;
+      msg += `\n\nक्या आप इस कमरे को खाली (Vacant) करना चाहते हैं? (किरायेदार का पूरा हिसाब इतिहास में सुरक्षित रहेगा)`;
 
       if (window.confirm(msg)) {
+        const vacateToday = new Date().toISOString().split('T')[0];
+        
+        // Purane kirayedar ka record archive karein
+        const archivedTenantRecord = {
+          id: Date.now(),
+          tenant: room.tenant,
+          phone: room.phone,
+          dob: room.dob || '',
+          idNumber: room.idNumber || '',
+          moveInDate: room.moveInDate,
+          vacateDate: vacateToday,
+          rent: room.rent,
+          security: room.security || 0,
+          depositAmount: room.depositAmount || 0,
+          finalBakaya: grossBakaya,
+          totalPaid: getPaidTotal(room),
+          payments: room.payments || [],
+          electricityHistory: room.electricityHistory || []
+        };
+
         const updated = rooms.map(r => r.id === room.id ? {
           ...r,
           status: 'vacant',
           isVacated: true,
-          vacateDate: new Date().toISOString().split('T')[0]
+          vacateDate: vacateToday,
+          tenant: '',
+          phone: '',
+          dob: '',
+          idNumber: '',
+          pin: '',
+          depositAmount: 0,
+          security: 0,
+          payments: [],
+          electricityHistory: [],
+          tenantHistory: [archivedTenantRecord, ...(r.tenantHistory || [])]
         } : r);
+
         updateRoomsInDb(updated);
-        alert('कमरा खाली मार्क हो गया है!');
+        alert(`कमरा ${room.roomNo} खाली मार्क हो गया है और ${room.tenant} का डेटा इतिहास में सुरक्षित कर दिया गया है!`);
       }
     } else {
-      if (window.confirm('क्या आप इस कमरे को पुनः Occupied (किराये पर) मार्क करना चाहते हैं?')) {
-        openEditRoomModal(room);
+      if (window.confirm('क्या आप इस कमरे में नया किरायेदार (Occupied) जोड़ना चाहते हैं?')) {
+        openNewTenantOccupiedModal(room);
       }
     }
   };
@@ -1272,7 +1336,7 @@ export default function App() {
                 ✏️ एडिट
               </button>
               <button onClick={() => handleToggleRoomVacate(selectedRoom)} style={{ background: selectedRoom.status === 'occupied' ? '#fef3c7' : '#ecfdf5', color: selectedRoom.status === 'occupied' ? '#b45309' : '#047857', border: '1px solid', borderColor: selectedRoom.status === 'occupied' ? '#f59e0b' : '#10b981', padding: '6px 10px', borderRadius: '6px', fontWeight: '800', fontSize: '12px', cursor: 'pointer' }}>
-                {selectedRoom.status === 'occupied' ? '🚪 खाली करें' : '🔑 Occupied करें'}
+                {selectedRoom.status === 'occupied' ? '🚪 खाली करें' : '🔑 Occupied (नया किरायेदार)'}
               </button>
             </div>
           </div>
@@ -1280,12 +1344,14 @@ export default function App() {
           <div style={{ backgroundColor: '#fff', borderRadius: '14px', padding: '16px', border: '2px solid #e2e8f0', marginBottom: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
-                <div style={{ fontSize: '20px', fontWeight: '900' }}>{selectedRoom.roomNo} · {selectedRoom.tenant || 'खाली कमरा'}</div>
+                <div style={{ fontSize: '20px', fontWeight: '900' }}>
+                  {selectedRoom.roomNo} · {selectedRoom.status === 'occupied' ? (selectedRoom.tenant || 'किरायेदार') : <span style={{ color: '#b45309' }}>खाली कमरा (Vacant)</span>}
+                </div>
                 <div style={{ fontSize: '13px', color: '#64748b', fontWeight: '600', marginTop: '2px' }}>📞 {selectedRoom.phone || 'नंबर नहीं है'} · {selectedRoom.propName}</div>
                 {selectedRoom.dob && <div style={{ fontSize: '11px', color: '#475569', marginTop: '2px' }}>🎂 जन्म तिथि: {selectedRoom.dob}</div>}
                 {selectedRoom.idNumber && <div style={{ fontSize: '11px', color: '#475569', marginTop: '2px' }}>🆔 पहचान सं.: {selectedRoom.idNumber}</div>}
                 <div style={{ fontSize: '12px', color: '#475569', marginTop: '4px' }}>
-                  📅 प्रवेश तारीख: <strong>{selectedRoom.moveInDate}</strong> | कुल समय: <strong>{calculateChargeableMonths(selectedRoom)} माह</strong>
+                  📅 प्रवेश तारीख: <strong>{selectedRoom.moveInDate || '-'}</strong> | कुल समय: <strong>{calculateChargeableMonths(selectedRoom)} माह</strong>
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>
@@ -1299,7 +1365,7 @@ export default function App() {
               <span>डिपॉजिट: ₹{selectedRoom.depositAmount || 0} | सिक्योरिटी: ₹{selectedRoom.security || 0}</span>
             </div>
 
-            {selectedRoom.phone && (
+            {selectedRoom.status === 'occupied' && selectedRoom.phone && (
               <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
                 <button onClick={() => sendWhatsAppBusinessReminder(selectedRoom)} style={{ flex: 1, backgroundColor: '#075E54', color: '#fff', border: 'none', padding: '10px', borderRadius: '8px', fontSize: '13px', fontWeight: '800', cursor: 'pointer' }}>
                   🟢 WhatsApp
@@ -1342,9 +1408,11 @@ export default function App() {
           <div style={{ backgroundColor: '#fff', borderRadius: '14px', padding: '16px', border: '2px solid #e2e8f0', marginBottom: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
               <strong style={{ fontSize: '14px', color: '#0f172a' }}>📜 जमा भुगतान इतिहास (Payment History)</strong>
-              <button onClick={() => { setPaymentModalRoom(selectedRoom); setEditingPaymentId(null); setPaymentForm({ amount: String(getRoomBakaya(selectedRoom) || ''), mode: 'Cash', date: '2026-09-23', note: '' }); }} style={{ backgroundColor: '#059669', color: '#fff', border: 'none', padding: '6px 10px', borderRadius: '6px', fontWeight: '800', fontSize: '11px', cursor: 'pointer' }}>
-                + नया जमा
-              </button>
+              {selectedRoom.status === 'occupied' && (
+                <button onClick={() => { setPaymentModalRoom(selectedRoom); setEditingPaymentId(null); setPaymentForm({ amount: String(getRoomBakaya(selectedRoom) || ''), mode: 'Cash', date: '2026-09-23', note: '' }); }} style={{ backgroundColor: '#059669', color: '#fff', border: 'none', padding: '6px 10px', borderRadius: '6px', fontWeight: '800', fontSize: '11px', cursor: 'pointer' }}>
+                  + नया जमा
+                </button>
+              )}
             </div>
 
             {(selectedRoom.payments || []).length === 0 ? (
@@ -1395,30 +1463,66 @@ export default function App() {
             )}
           </div>
 
-          <div style={{ backgroundColor: '#fff', borderRadius: '14px', padding: '16px', border: '2px solid #e2e8f0', marginBottom: '16px' }}>
-            <strong style={{ fontSize: '14px', display: 'block', marginBottom: '8px' }}>⚡ नई बिजली मीटर रीडिंग डालें</strong>
-            <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '8px' }}>
-              पिछली रीडिंग: <strong>{selectedRoom.currentReading || selectedRoom.initialReading}</strong>
+          {selectedRoom.status === 'occupied' && (
+            <div style={{ backgroundColor: '#fff', borderRadius: '14px', padding: '16px', border: '2px solid #e2e8f0', marginBottom: '16px' }}>
+              <strong style={{ fontSize: '14px', display: 'block', marginBottom: '8px' }}>⚡ नई बिजली मीटर रीडिंग डालें</strong>
+              <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '8px' }}>
+                पिछली रीडिंग: <strong>{selectedRoom.currentReading || selectedRoom.initialReading}</strong>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px' }}>
+                <input
+                  type="number"
+                  placeholder="वर्तमान रीडिंग"
+                  value={(meterInputs[selectedRoom.id] || {}).curr || ''}
+                  onChange={e => setMeterInputs({ ...meterInputs, [selectedRoom.id]: { ...(meterInputs[selectedRoom.id] || {}), curr: e.target.value } })}
+                  style={{ padding: '8px', border: '1px solid #cbd5e1', borderRadius: '6px', fontWeight: '700' }}
+                />
+                <input
+                  type="number"
+                  placeholder="दर (₹10)"
+                  value={(meterInputs[selectedRoom.id] || {}).rate || '10'}
+                  onChange={e => setMeterInputs({ ...meterInputs, [selectedRoom.id]: { ...(meterInputs[selectedRoom.id] || {}), rate: e.target.value } })}
+                  style={{ padding: '8px', border: '1px solid #cbd5e1', borderRadius: '6px', fontWeight: '700' }}
+                />
+              </div>
+              <button onClick={() => handleSaveBijli(selectedRoom)} style={{ width: '100%', backgroundColor: '#0f172a', color: '#fff', border: 'none', padding: '10px', borderRadius: '8px', fontWeight: '800', cursor: 'pointer' }}>
+                रीडिंग सेव करें
+              </button>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px' }}>
-              <input
-                type="number"
-                placeholder="वर्तमान रीडिंग"
-                value={(meterInputs[selectedRoom.id] || {}).curr || ''}
-                onChange={e => setMeterInputs({ ...meterInputs, [selectedRoom.id]: { ...(meterInputs[selectedRoom.id] || {}), curr: e.target.value } })}
-                style={{ padding: '8px', border: '1px solid #cbd5e1', borderRadius: '6px', fontWeight: '700' }}
-              />
-              <input
-                type="number"
-                placeholder="दर (₹10)"
-                value={(meterInputs[selectedRoom.id] || {}).rate || '10'}
-                onChange={e => setMeterInputs({ ...meterInputs, [selectedRoom.id]: { ...(meterInputs[selectedRoom.id] || {}), rate: e.target.value } })}
-                style={{ padding: '8px', border: '1px solid #cbd5e1', borderRadius: '6px', fontWeight: '700' }}
-              />
-            </div>
-            <button onClick={() => handleSaveBijli(selectedRoom)} style={{ width: '100%', backgroundColor: '#0f172a', color: '#fff', border: 'none', padding: '10px', borderRadius: '8px', fontWeight: '800', cursor: 'pointer' }}>
-              रीडिंग सेव करें
-            </button>
+          )}
+
+          {/* PURANE KIRAYEDARO KA ARCHIVED ITIHAS */}
+          <div style={{ backgroundColor: '#fff', borderRadius: '14px', padding: '16px', border: '2px solid #cbd5e1', marginBottom: '16px' }}>
+            <strong style={{ fontSize: '14px', display: 'block', marginBottom: '10px', color: '#1e3a8a' }}>
+              📜 पूर्व किरायेदारों का इतिहास (Past Tenant History)
+            </strong>
+            {(!selectedRoom.tenantHistory || selectedRoom.tenantHistory.length === 0) ? (
+              <div style={{ fontSize: '12px', color: '#94a3b8', textAlign: 'center', padding: '8px 0' }}>
+                इस कमरे में अभी तक कोई पूर्व किरायेदार का रिकॉर्ड नहीं है।
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {selectedRoom.tenantHistory.map((th, idx) => (
+                  <div key={th.id || idx} style={{ backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '10px', fontSize: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <strong style={{ fontSize: '13px', color: '#0f172a' }}>👤 {th.tenant}</strong>
+                      <span style={{ fontSize: '10px', backgroundColor: '#e2e8f0', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>
+                        खाली: {th.vacateDate}
+                      </span>
+                    </div>
+                    <div style={{ color: '#64748b', fontSize: '11px', marginTop: '2px' }}>
+                      📞 {th.phone || 'नंबर नहीं'} | 📅 अवधि: {th.moveInDate} से {th.vacateDate}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px', marginTop: '6px', paddingTop: '6px', borderTop: '1px dashed #cbd5e1', fontSize: '11px' }}>
+                      <span>किराया दर: ₹{th.rent}</span>
+                      <span>कुल जमा: <strong style={{ color: '#059669' }}>₹{th.totalPaid}</strong></span>
+                      <span>अंतिम शेष बकाया: <strong style={{ color: '#dc2626' }}>₹{th.finalBakaya}</strong></span>
+                      <span>सिक्योरिटी: ₹{th.security}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       ) : (
@@ -1470,7 +1574,9 @@ export default function App() {
                       <div onClick={() => setSelectedRoomId(room.id)} style={{ cursor: 'pointer' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <div>
-                            <strong style={{ fontSize: '16px', fontWeight: '900' }}>{room.roomNo} · {room.tenant || 'खाली'}</strong>
+                            <strong style={{ fontSize: '16px', fontWeight: '900' }}>
+                              {room.roomNo} · {room.status === 'occupied' ? (room.tenant || 'किरायेदार') : <span style={{ color: '#b45309' }}>खाली</span>}
+                            </strong>
                             <span style={{ marginLeft: '8px', padding: '2px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '800', backgroundColor: room.status === 'occupied' ? '#ecfdf5' : '#fef3c7', color: room.status === 'occupied' ? '#047857' : '#b45309' }}>
                               {room.status === 'occupied' ? 'Occupied' : 'Khali'}
                             </span>
@@ -1482,10 +1588,10 @@ export default function App() {
 
                       <div style={{ display: 'flex', gap: '6px', marginTop: '10px', paddingTop: '8px', borderTop: '1px dashed #e2e8f0' }}>
                         <button onClick={() => openEditRoomModal(room)} style={{ flex: 1, backgroundColor: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', padding: '6px', borderRadius: '6px', fontSize: '12px', fontWeight: '800', cursor: 'pointer' }}>
-                          ✏️ किरायेदार एडिट
+                          ✏️ विवरण एडिट
                         </button>
                         <button onClick={() => handleToggleRoomVacate(room)} style={{ flex: 1, backgroundColor: room.status === 'occupied' ? '#fffbeb' : '#ecfdf5', color: room.status === 'occupied' ? '#b45309' : '#047857', border: '1px solid #cbd5e1', padding: '6px', borderRadius: '6px', fontSize: '12px', fontWeight: '800', cursor: 'pointer' }}>
-                          {room.status === 'occupied' ? '🚪 खाली करें' : '🔑 Occupied करें'}
+                          {room.status === 'occupied' ? '🚪 खाली करें' : '🔑 Occupied (नया किरायेदार)'}
                         </button>
                       </div>
                     </div>
@@ -1558,7 +1664,7 @@ export default function App() {
                     <div key={room.id} style={{ backgroundColor: '#fff', padding: '14px', borderRadius: '12px', border: '2px solid #e2e8f0' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div>
-                          <strong style={{ fontSize: '16px' }}>{room.roomNo}</strong> ({room.tenant || 'खाली'})
+                          <strong style={{ fontSize: '16px' }}>{room.roomNo}</strong> ({room.status === 'occupied' ? (room.tenant || 'किरायेदार') : 'खाली'})
                           <div style={{ fontSize: '11px', color: '#64748b' }}>🏢 {room.propName}</div>
                         </div>
                         <div style={{ textAlign: 'right' }}>
@@ -1575,9 +1681,11 @@ export default function App() {
                         <button onClick={() => setSelectedRoomId(room.id)} style={{ flex: 1, backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', padding: '8px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>
                           🔍 विवरण व इतिहास देखें
                         </button>
-                        <button onClick={() => { setPaymentModalRoom(room); setEditingPaymentId(null); setPaymentForm({ amount: String(bakaya || ''), mode: 'Cash', date: '2026-09-23', note: '' }); }} style={{ flex: 1, backgroundColor: '#059669', color: '#fff', border: 'none', padding: '8px', borderRadius: '6px', fontSize: '12px', fontWeight: '800', cursor: 'pointer' }}>
-                          + जमा दर्ज करें
-                        </button>
+                        {room.status === 'occupied' && (
+                          <button onClick={() => { setPaymentModalRoom(room); setEditingPaymentId(null); setPaymentForm({ amount: String(bakaya || ''), mode: 'Cash', date: '2026-09-23', note: '' }); }} style={{ flex: 1, backgroundColor: '#059669', color: '#fff', border: 'none', padding: '8px', borderRadius: '6px', fontSize: '12px', fontWeight: '800', cursor: 'pointer' }}>
+                            + जमा दर्ज करें
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
@@ -1679,7 +1787,7 @@ export default function App() {
                           return (
                             <tr key={r.id} style={{ borderBottom: '1px solid #e2e8f0', verticalAlign: 'top' }}>
                               <td style={{ padding: '6px 4px', fontWeight: '900' }}>{r.roomNo}</td>
-                              <td style={{ padding: '6px 4px' }}>{r.tenant || 'खाली'}</td>
+                              <td style={{ padding: '6px 4px' }}>{r.status === 'occupied' ? (r.tenant || 'किरायेदार') : 'खाली'}</td>
                               <td style={{ padding: '6px 4px' }}>₹{getRentTotalDue(r)} ({calculateChargeableMonths(r)} माह)</td>
                               <td style={{ padding: '6px 4px' }}>
                                 <strong>₹{bijliBill}</strong>
@@ -1770,11 +1878,13 @@ export default function App() {
         </div>
       )}
 
-      {/* 2 & 3. MODAL: ADD / EDIT ROOM */}
+      {/* 2 & 3. MODAL: ADD / EDIT ROOM (Automatic New Tenant Capture) */}
       {showAddRoom && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px', zIndex: 9999 }}>
           <div style={{ backgroundColor: '#fff', width: '100%', maxWidth: '370px', borderRadius: '14px', padding: '18px', maxHeight: '90vh', overflowY: 'auto' }}>
-            <h3 style={{ margin: '0 0 10px 0', fontSize: '17px', fontWeight: '900' }}>{editingRoomId ? '✏️ कमरा व किरायेदार विवरण सुधारें' : '+ नया कमरा जोड़ें'}</h3>
+            <h3 style={{ margin: '0 0 10px 0', fontSize: '17px', fontWeight: '900' }}>
+              {editingRoomId ? (roomForm.status === 'occupied' && !roomForm.tenant ? '🔑 नए किरायेदार की जानकारी भरें' : '✏️ कमरा व किरायेदार विवरण सुधारें') : '+ नया कमरा जोड़ें'}
+            </h3>
             <form onSubmit={handleSaveRoom} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <select value={roomForm.propName} onChange={e => setRoomForm({ ...roomForm, propName: e.target.value })} style={{ padding: '8px', border: '1px solid #cbd5e1', borderRadius: '6px', fontWeight: '700' }}>
                 <option value="">प्रॉपर्टी चुनें *</option>
@@ -1784,7 +1894,7 @@ export default function App() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
                 <input placeholder="कमरा नंबर (101) *" value={roomForm.roomNo} onChange={e => setRoomForm({ ...roomForm, roomNo: e.target.value })} style={{ padding: '8px', border: '1px solid #cbd5e1', borderRadius: '6px', fontWeight: '700' }} required />
                 <select value={roomForm.status} onChange={e => setRoomForm({ ...roomForm, status: e.target.value })} style={{ padding: '8px', border: '1px solid #cbd5e1', borderRadius: '6px', fontWeight: '800' }}>
-                  <option value="occupied">Occupied (भरा हुआ)</option>
+                  <option value="occupied">Occupied (किराये पर)</option>
                   <option value="vacant">Khali (खाली)</option>
                 </select>
               </div>
