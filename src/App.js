@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, onValue, set } from 'firebase/database';
-import { getAuth, RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth';
 
-// Firebase Configuration (Multi-Owner & SMS Auth)
+// Firebase Configuration (Multi-Owner Realtime DB)
 const firebaseConfig = {
   apiKey: "AIzaSyDm7SPCrC2JwS65_CVaB2Dn1tgqDc68J-M",
   authDomain: "kirayamanager-pro.firebaseapp.com",
@@ -17,7 +16,6 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
-const auth = getAuth(app);
 
 const ADMIN_UPI = "vs.kumar4@ybl";
 const FREE_ROOM_LIMIT = 5;
@@ -30,7 +28,7 @@ export default function App() {
   const [loggedInTenantRoomId, setLoggedInTenantRoomId] = useState(() => localStorage.getItem('km_tenantRoomId') || null);
   const [activeOwnerId, setActiveOwnerId] = useState(() => localStorage.getItem('km_activeOwnerId') || null);
 
-  // Multi-Owner Auth State
+  // Multi-Owner Auth State (Direct Mobile No - OTP Removed)
   const [isOwnerRegistering, setIsOwnerRegistering] = useState(false);
   const [ownerLoginForm, setOwnerLoginForm] = useState({ id: '', password: '' });
   const [ownerRegisterForm, setOwnerRegisterForm] = useState({ 
@@ -41,13 +39,6 @@ export default function App() {
     confirmPassword: '', 
     upiId: '' 
   });
-
-  // Phone OTP States
-  const [otpSent, setOtpSent] = useState(false);
-  const [otpCode, setOtpCode] = useState('');
-  const [confirmationResult, setConfirmationResult] = useState(null);
-  const [isPhoneVerified, setIsPhoneVerified] = useState(false);
-  const [otpLoading, setOtpLoading] = useState(false);
 
   const [allOwnersData, setAllOwnersData] = useState({});
 
@@ -70,7 +61,24 @@ export default function App() {
 
   const [selectedRoomId, setSelectedRoomId] = useState(null);
   const [propertyFilter, setPropertyFilter] = useState('all');
-  const [searchQuery, setSearchQuery] = useState('');
+  
+  // Tab-wise individual search state
+  const [tabSearches, setTabSearches] = useState({
+    dashboard: '',
+    properties: '',
+    khata: '',
+    report: ''
+  });
+
+  const currentTabSearch = tabSearches[activeTab] || '';
+
+  const handleSearchChange = (val) => {
+    setTabSearches(prev => ({
+      ...prev,
+      [activeTab]: val
+    }));
+  };
+
   const [qrModalRoom, setQrModalRoom] = useState(null);
 
   // Active Owner Data States
@@ -186,6 +194,7 @@ export default function App() {
 
   const [utrForm, setUtrForm] = useState({ amount: '', utrNo: '' });
   
+  // Date Range state for Report
   const [reportFilter, setReportFilter] = useState({
     propName: 'all',
     roomId: 'all',
@@ -225,24 +234,23 @@ export default function App() {
   const getRoomTotalDue = (r) => getRentTotalDue(r) + getBijliTotal(r) + getOtherChargesTotal(r);
   const getRoomBakaya = (r) => Math.max(0, getRoomTotalDue(r) - getPaidTotal(r));
 
-  const getPaidUnitsStatus = (r) => {
-    const totalUnits = getBijliUnitsTotal(r);
-    const totalBijliBill = getBijliTotal(r);
-    const totalPaid = getPaidTotal(r);
-    const totalRent = getRentTotalDue(r);
+  // Date range calculation helpers for Report
+  const getFilteredPaymentsForReport = (r) => {
+    return (r.payments || []).filter(p => {
+      if (!p.date) return true;
+      if (reportFilter.startDate && p.date < reportFilter.startDate) return false;
+      if (reportFilter.endDate && p.date > reportFilter.endDate) return false;
+      return true;
+    });
+  };
 
-    if (totalBijliBill <= 0) return '0 / 0 Unit Paid';
-
-    const amountAvailableForBijli = Math.max(0, totalPaid - totalRent);
-    if (amountAvailableForBijli >= totalBijliBill) {
-      return `पूरा चुकता (${totalUnits} Unit Paid)`;
-    } else if (amountAvailableForBijli > 0) {
-      const avgRate = totalBijliBill / (totalUnits || 1);
-      const unitsPaidEstimate = Math.floor(amountAvailableForBijli / (avgRate || 10));
-      return `${unitsPaidEstimate} / ${totalUnits} Unit चुकता`;
-    } else {
-      return `0 / ${totalUnits} Unit चुकता (बकाया)`;
-    }
+  const getFilteredBijliForReport = (r) => {
+    return (r.electricityHistory || []).filter(b => {
+      if (!b.date) return true;
+      if (reportFilter.startDate && b.date < reportFilter.startDate) return false;
+      if (reportFilter.endDate && b.date > reportFilter.endDate) return false;
+      return true;
+    });
   };
 
   const triggerUpiPayment = (room) => {
@@ -255,66 +263,13 @@ export default function App() {
     window.location.assign(upiUri);
   };
 
-  // Setup reCAPTCHA for Phone OTP
-  const setupRecaptcha = () => {
-    if (!window.recaptchaVerifier) {
-      window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
-        size: 'invisible',
-        callback: () => {}
-      });
-    }
-  };
+  // MULTI-OWNER DIRECT REGISTRATION (OTP REMOVED)
+  const handleOwnerRegister = (e) => {
+    e.preventDefault();
 
-  // Send OTP Function
-  const handleSendOtp = async () => {
     const cleanNum = ownerRegisterForm.phone.replace(/\D/g, '');
     if (cleanNum.length !== 10) {
       alert('कृपया सही 10-अंकों का मोबाइल नंबर दर्ज करें!');
-      return;
-    }
-    setOtpLoading(true);
-    try {
-      setupRecaptcha();
-      const appVerifier = window.recaptchaVerifier;
-      const formatPhone = `+91${cleanNum}`;
-      const confirmation = await signInWithPhoneNumber(auth, formatPhone, appVerifier);
-      setConfirmationResult(confirmation);
-      setOtpSent(true);
-      alert(`OTP सफलतापूर्क +91 ${cleanNum} पर भेजा गया!`);
-    } catch (err) {
-      alert('OTP भेजने में समस्या आई: ' + err.message);
-      if (window.recaptchaVerifier) {
-        window.recaptchaVerifier.clear();
-        window.recaptchaVerifier = null;
-      }
-    } finally {
-      setOtpLoading(false);
-    }
-  };
-
-  // Verify OTP Function
-  const handleVerifyOtp = async () => {
-    if (!otpCode || otpCode.length < 6) {
-      alert('कृपया 6-अंकों का सही OTP भरें!');
-      return;
-    }
-    setOtpLoading(true);
-    try {
-      await confirmationResult.confirm(otpCode);
-      setIsPhoneVerified(true);
-      alert('✓ मोबाइल नंबर सफलतापूर्वक 100% सत्यापित हो गया!');
-    } catch (err) {
-      alert('गलत OTP! कृपया दोबारा चेक करें।');
-    } finally {
-      setOtpLoading(false);
-    }
-  };
-
-  // Multi-Owner Registration
-  const handleOwnerRegister = (e) => {
-    e.preventDefault();
-    if (!isPhoneVerified) {
-      alert('कृपया पहले अपने मोबाइल नंबर को OTP द्वारा सत्यापित करें!');
       return;
     }
 
@@ -338,14 +293,14 @@ export default function App() {
       credentials: {
         id: cleanId,
         name: ownerRegisterForm.name,
-        phone: ownerRegisterForm.phone,
+        phone: cleanNum,
         password: cleanPass
       },
       isPro: false,
       isVerifiedOwner: true,
       payConfig: {
         upiId: ownerRegisterForm.upiId || '9876543210@paytm',
-        accHolder: ownerRegisterForm.name || 'Property Manager',
+        accHolder: ownerRegisterForm.name || 'Vishvendra Kumar',
         accNo: '',
         ifsc: ''
       },
@@ -357,7 +312,7 @@ export default function App() {
     setActiveOwnerId(cleanId);
     setAuthRole('owner');
     setIsOwnerRegistering(false);
-    alert('आपका 100% वेरिफ़ाइड मकान मालिक खाता सफलतापूर्वक बन गया है!');
+    alert('आपका मकान मालिक खाता सफलतापूर्वक बन गया है!');
   };
 
   // Multi-Owner Login
@@ -524,25 +479,34 @@ export default function App() {
   };
 
   const handleShareReport = async () => {
+    const sTerm = (tabSearches.report || '').toLowerCase();
     const filtered = rooms
       .filter(r => reportFilter.propName === 'all' || r.propName === reportFilter.propName)
       .filter(r => reportFilter.roomId === 'all' || r.id === reportFilter.roomId)
-      .filter(r => !searchQuery || r.roomNo.toLowerCase().includes(searchQuery.toLowerCase()) || (r.tenant && r.tenant.toLowerCase().includes(searchQuery.toLowerCase())));
+      .filter(r => !sTerm || r.roomNo.toLowerCase().includes(sTerm) || (r.tenant && r.tenant.toLowerCase().includes(sTerm)));
 
     let summaryText = `*Kiraya Manager Statement Report*\n`;
     summaryText += `प्रॉपर्टी: ${reportFilter.propName === 'all' ? 'सभी प्रॉपर्टीज' : reportFilter.propName}\n`;
-    summaryText += `दिनांक: ${new Date().toLocaleDateString('hi-IN')}\n\n`;
+    summaryText += `दिनांक: ${new Date().toLocaleDateString('hi-IN')}\n`;
+    if (reportFilter.startDate || reportFilter.endDate) {
+      summaryText += `अवधि: ${reportFilter.startDate || 'प्रारंभ'} से ${reportFilter.endDate || 'आज'}\n`;
+    }
+    summaryText += `\n`;
 
     filtered.forEach(r => {
+      const pList = getFilteredPaymentsForReport(r);
+      const bList = getFilteredBijliForReport(r);
+      const bTotal = bList.reduce((acc, curr) => acc + (Number(curr.bill) || 0), 0);
+      const pTotal = pList.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+
       summaryText += `------------------------------------\n`;
       summaryText += `🚪 *${r.roomNo}* (${r.status === 'occupied' ? (r.tenant || 'किरायेदार') : 'खाली'})\n`;
-      summaryText += `• किराया: ₹${getRentTotalDue(r)} | बिजली बिल: ₹${getBijliTotal(r)}\n`;
-      summaryText += `• कुल जमा: ₹${getPaidTotal(r)} | *बकाया: ₹${getRoomBakaya(r)}*\n`;
+      summaryText += `• किराया: ₹${getRentTotalDue(r)} | बिजली बिल: ₹${bTotal}\n`;
+      summaryText += `• कुल जमा: ₹${pTotal} | *बकाया: ₹${getRoomBakaya(r)}*\n`;
       
-      const paymentsList = r.payments || [];
-      if (paymentsList.length > 0) {
+      if (pList.length > 0) {
         summaryText += `   👉 जमा भुगतान विवरण:\n`;
-        paymentsList.forEach(p => {
+        pList.forEach(p => {
           summaryText += `     - ₹${p.amount} (${p.mode}) दिनांक: ${p.date} ${p.note ? `[${p.note}]` : ''}\n`;
         });
       } else {
@@ -742,10 +706,10 @@ export default function App() {
         } : r);
 
         updateRoomsInDb(updated);
-        alert(`कमरा ${room.roomNo} खाली मार्क हो गया है और ${room.tenant} का डेटा सुरक्षित कर दिया गया है!`);
+        alert(`कमरा ${room.roomNo} खाली मार्क हो गया है और ${room.tenant} का संपूर्ण डेटा इतिहास में सुरक्षित कर दिया गया है!`);
       }
     } else {
-      if (window.confirm('क्या आप इस कमरे में नया किरायेदार (Occupied) जोड़ना चाहते हैं?')) {
+      if (window.confirm('क्या आप इस कमरे में नया किरायेदार जोड़ना (Occupied करना) चाहते हैं?')) {
         openNewTenantOccupiedModal(room);
       }
     }
@@ -934,7 +898,6 @@ export default function App() {
   if (authRole === 'login_choice') {
     return (
       <div style={{ maxWidth: '440px', margin: '0 auto', minHeight: '100vh', backgroundColor: '#f8fafc', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '20px', fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif" }}>
-        <div id="recaptcha-container"></div>
         <div style={{ backgroundColor: '#fff', borderRadius: '24px', padding: '28px 24px', boxShadow: '0 10px 25px -5px rgba(2, 132, 199, 0.1)', border: '1px solid #e0f2fe' }}>
           <div style={{ textAlign: 'center', marginBottom: '22px' }}>
             <div style={{ backgroundColor: '#e0f2fe', color: '#0284c7', width: '56px', height: '56px', borderRadius: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '28px', margin: '0 auto 12px auto' }}>🏠</div>
@@ -992,8 +955,8 @@ export default function App() {
             </form>
           ) : (
             isOwnerRegistering ? (
-              <form onSubmit={handleOwnerRegister} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <strong style={{ fontSize: '14px', color: '#0284c7' }}>नया मकान मालिक खाता बनाएं (100% Verified)</strong>
+              <form onSubmit={handleOwnerRegister} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <strong style={{ fontSize: '15px', color: '#0284c7' }}>नया मकान मालिक खाता बनाएं (Direct Registration)</strong>
                 
                 <input
                   type="text"
@@ -1012,57 +975,16 @@ export default function App() {
                   required
                 />
 
-                {/* SMS OTP SECTION */}
-                <div>
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    <input
-                      type="tel"
-                      disabled={isPhoneVerified}
-                      placeholder="मोबाइल नंबर (10 अंक) *"
-                      value={ownerRegisterForm.phone}
-                      onChange={e => setOwnerRegisterForm({ ...ownerRegisterForm, phone: e.target.value })}
-                      style={{ flex: 1, padding: '10px 14px', border: isPhoneVerified ? '1.5px solid #10b981' : '1.5px solid #cbd5e1', borderRadius: '12px', fontSize: '13px', outline: 'none', backgroundColor: isPhoneVerified ? '#f0fdf4' : '#fff' }}
-                      required
-                    />
-                    {!isPhoneVerified && (
-                      <button
-                        type="button"
-                        onClick={handleSendOtp}
-                        disabled={otpLoading}
-                        style={{ backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '8px 14px', borderRadius: '20px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' }}
-                      >
-                        {otpLoading ? 'भेज रहे हैं...' : (otpSent ? 'पुनः भेजें' : 'OTP भेजें')}
-                      </button>
-                    )}
-                  </div>
-
-                  {otpSent && !isPhoneVerified && (
-                    <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
-                      <input
-                        type="text"
-                        maxLength={6}
-                        placeholder="6-अंकों का OTP डालें"
-                        value={otpCode}
-                        onChange={e => setOtpCode(e.target.value)}
-                        style={{ flex: 1, padding: '10px 14px', border: '1.5px solid #0284c7', borderRadius: '12px', fontSize: '13px', fontWeight: 'bold', outline: 'none' }}
-                      />
-                      <button
-                        type="button"
-                        onClick={handleVerifyOtp}
-                        disabled={otpLoading}
-                        style={{ backgroundColor: '#10b981', color: '#fff', border: 'none', padding: '8px 14px', borderRadius: '20px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' }}
-                      >
-                        सत्यापित करें ✓
-                      </button>
-                    </div>
-                  )}
-
-                  {isPhoneVerified && (
-                    <div style={{ color: '#10b981', fontSize: '11px', fontWeight: 'bold', marginTop: '4px' }}>
-                      ✓ मोबाइल नंबर OTP द्वारा 100% सत्यापित हो चुका है
-                    </div>
-                  )}
-                </div>
+                {/* Direct Mobile Number (No OTP Required) */}
+                <input
+                  type="tel"
+                  maxLength={10}
+                  placeholder="मोबाइल नंबर (10 अंक) *"
+                  value={ownerRegisterForm.phone}
+                  onChange={e => setOwnerRegisterForm({ ...ownerRegisterForm, phone: e.target.value })}
+                  style={{ width: '92%', padding: '10px 14px', border: '1.5px solid #cbd5e1', borderRadius: '12px', fontSize: '13px', outline: 'none' }}
+                  required
+                />
 
                 <input
                   type="text"
@@ -1093,10 +1015,9 @@ export default function App() {
 
                 <button 
                   type="submit" 
-                  disabled={!isPhoneVerified}
-                  style={{ width: '100%', backgroundColor: isPhoneVerified ? '#0284c7' : '#94a3b8', color: '#fff', border: 'none', padding: '14px', borderRadius: '30px', fontWeight: '800', fontSize: '14px', cursor: isPhoneVerified ? 'pointer' : 'not-allowed', marginTop: '6px', boxShadow: isPhoneVerified ? '0 4px 12px rgba(2, 132, 199, 0.25)' : 'none' }}
+                  style={{ width: '100%', backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '14px', borderRadius: '30px', fontWeight: '800', fontSize: '14px', cursor: 'pointer', marginTop: '6px', boxShadow: '0 4px 12px rgba(2, 132, 199, 0.25)' }}
                 >
-                  {isPhoneVerified ? 'रजिस्टर करें व डैशबोर्ड खोलें 🚀' : 'पहले OTP सत्यापित करें'}
+                  खाता बनाएं व डैशबोर्ड खोलें 🚀
                 </button>
                 <div style={{ textAlign: 'center', marginTop: '6px' }}>
                   <span onClick={() => setIsOwnerRegistering(false)} style={{ fontSize: '12px', color: '#0284c7', cursor: 'pointer', fontWeight: '700' }}>
@@ -1134,7 +1055,7 @@ export default function App() {
                 </button>
                 
                 <div style={{ textAlign: 'center', marginTop: '6px' }}>
-                  <span onClick={() => { setIsOwnerRegistering(true); setIsPhoneVerified(false); setOtpSent(false); }} style={{ fontSize: '12px', color: '#0284c7', cursor: 'pointer', fontWeight: '800' }}>
+                  <span onClick={() => { setIsOwnerRegistering(true); }} style={{ fontSize: '12px', color: '#0284c7', cursor: 'pointer', fontWeight: '800' }}>
                     + नया मकान मालिक अकाउंट बनाएं (Register Here)
                   </span>
                 </div>
@@ -1314,19 +1235,19 @@ export default function App() {
           </div>
         </div>
 
-        {/* UNIVERSAL SEARCH BAR PILL MATCHING PHOTO */}
+        {/* TAB-INDEPENDENT SEARCH BAR */}
         <div style={{ marginTop: '16px', position: 'relative' }}>
           <div style={{ display: 'flex', alignItems: 'center', backgroundColor: '#fff', border: '1.5px solid #0284c7', borderRadius: '30px', padding: '8px 16px', boxShadow: '0 2px 8px rgba(2, 132, 199, 0.08)' }}>
             <span style={{ color: '#0284c7', marginRight: '8px', fontSize: '16px' }}>🔍</span>
             <input
               type="text"
-              placeholder="Search for properties or rooms!"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
+              placeholder={`Search ${activeTab === 'dashboard' ? 'rooms/properties' : activeTab === 'report' ? 'in report' : activeTab}...`}
+              value={currentTabSearch}
+              onChange={e => handleSearchChange(e.target.value)}
               style={{ border: 'none', outline: 'none', width: '100%', fontSize: '14px', color: '#0f172a', fontWeight: '500' }}
             />
-            {searchQuery && (
-              <span onClick={() => setSearchQuery('')} style={{ color: '#94a3b8', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', paddingLeft: '8px' }}>✕</span>
+            {currentTabSearch && (
+              <span onClick={() => handleSearchChange('')} style={{ color: '#94a3b8', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', paddingLeft: '8px' }}>✕</span>
             )}
           </div>
         </div>
@@ -1573,7 +1494,11 @@ export default function App() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {rooms
                   .filter(r => propertyFilter === 'all' || r.propName === propertyFilter)
-                  .filter(r => !searchQuery || r.roomNo.toLowerCase().includes(searchQuery.toLowerCase()) || (r.tenant && r.tenant.toLowerCase().includes(searchQuery.toLowerCase())) || (r.phone && r.phone.includes(searchQuery)) || r.propName.toLowerCase().includes(searchQuery.toLowerCase()))
+                  .filter(r => {
+                    const s = (tabSearches.dashboard || '').toLowerCase();
+                    if (!s) return true;
+                    return r.roomNo.toLowerCase().includes(s) || (r.tenant && r.tenant.toLowerCase().includes(s)) || (r.phone && r.phone.includes(s)) || r.propName.toLowerCase().includes(s);
+                  })
                   .map(room => (
                     <div key={room.id} style={{ backgroundColor: '#fff', borderRadius: '24px', border: '1px solid #f1f5f9', boxShadow: '0 6px 20px rgba(0,0,0,0.04)', overflow: 'hidden' }}>
                       <div onClick={() => setSelectedRoomId(room.id)} style={{ cursor: 'pointer' }}>
@@ -1627,32 +1552,38 @@ export default function App() {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                {properties.map(p => {
-                  const propRooms = rooms.filter(r => r.propName === p.name);
-                  return (
-                    <div key={p.id} style={{ backgroundColor: '#fff', borderRadius: '24px', overflow: 'hidden', border: '1px solid #f1f5f9', boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}>
-                      <img src={p.photo || 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=500&q=60'} alt={p.name} style={{ width: '100%', height: '130px', objectFit: 'cover' }} />
-                      <div style={{ padding: '16px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <strong style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>{p.name}</strong>
-                          <button onClick={() => { setEditingPropId(p.id); setPropForm({ ...p }); setShowAddProperty(true); }} style={{ backgroundColor: '#f0f9ff', color: '#0284c7', border: '1px solid #bae6fd', padding: '4px 10px', borderRadius: '15px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}>✏️ Edit</button>
-                        </div>
-                        <div style={{ fontSize: '13px', color: '#64748b', margin: '4px 0' }}>📍 {p.address} ({p.pincode})</div>
-                        <div style={{ fontSize: '12px', color: '#64748b', margin: '4px 0' }}>👤 देखरेख: {p.caretakerName} ({p.caretakerPhone})</div>
+                {properties
+                  .filter(p => {
+                    const s = (tabSearches.properties || '').toLowerCase();
+                    if (!s) return true;
+                    return p.name.toLowerCase().includes(s) || p.address.toLowerCase().includes(s) || (p.caretakerName && p.caretakerName.toLowerCase().includes(s));
+                  })
+                  .map(p => {
+                    const propRooms = rooms.filter(r => r.propName === p.name);
+                    return (
+                      <div key={p.id} style={{ backgroundColor: '#fff', borderRadius: '24px', overflow: 'hidden', border: '1px solid #f1f5f9', boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}>
+                        <img src={p.photo || 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=500&q=60'} alt={p.name} style={{ width: '100%', height: '130px', objectFit: 'cover' }} />
+                        <div style={{ padding: '16px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <strong style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>{p.name}</strong>
+                            <button onClick={() => { setEditingPropId(p.id); setPropForm({ ...p }); setShowAddProperty(true); }} style={{ backgroundColor: '#f0f9ff', color: '#0284c7', border: '1px solid #bae6fd', padding: '4px 10px', borderRadius: '15px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}>✏️ Edit</button>
+                          </div>
+                          <div style={{ fontSize: '13px', color: '#64748b', margin: '4px 0' }}>📍 {p.address} ({p.pincode})</div>
+                          <div style={{ fontSize: '12px', color: '#64748b', margin: '4px 0' }}>👤 देखरेख: {p.caretakerName} ({p.caretakerPhone})</div>
 
-                        <button
-                          onClick={() => {
-                            setPropertyFilter(p.name);
-                            setActiveTab('dashboard');
-                          }}
-                          style={{ width: '100%', marginTop: '12px', backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '12px', borderRadius: '30px', fontSize: '13px', fontWeight: '700', cursor: 'pointer', boxShadow: '0 4px 12px rgba(2, 132, 199, 0.2)' }}
-                        >
-                          🚪 इस प्रॉपर्टी के कमरे देखें ({propRooms.length})
-                        </button>
+                          <button
+                            onClick={() => {
+                              setPropertyFilter(p.name);
+                              setActiveTab('dashboard');
+                            }}
+                            style={{ width: '100%', marginTop: '12px', backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '12px', borderRadius: '30px', fontSize: '13px', fontWeight: '700', cursor: 'pointer', boxShadow: '0 4px 12px rgba(2, 132, 199, 0.2)' }}
+                          >
+                            🚪 इस प्रॉपर्टी के कमरे देखें ({propRooms.length})
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
               </div>
             </div>
           )}
@@ -1662,7 +1593,11 @@ export default function App() {
               <h2 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>📖 खाता बही (Ledger)</h2>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 {rooms
-                  .filter(r => !searchQuery || r.roomNo.toLowerCase().includes(searchQuery.toLowerCase()) || (r.tenant && r.tenant.toLowerCase().includes(searchQuery.toLowerCase())) || (r.phone && r.phone.includes(searchQuery)))
+                  .filter(r => {
+                    const s = (tabSearches.khata || '').toLowerCase();
+                    if (!s) return true;
+                    return r.roomNo.toLowerCase().includes(s) || (r.tenant && r.tenant.toLowerCase().includes(s)) || (r.phone && r.phone.includes(s));
+                  })
                   .map(room => {
                     const rent = getRentTotalDue(room);
                     const bijli = getBijliTotal(room);
@@ -1703,7 +1638,7 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 4: ADVANCED REPORT WITH 1-ROOM / ALL ROOMS FILTER & DOWNLOAD */}
+          {/* TAB 4: ADVANCED REPORT WITH 1-ROOM / ALL ROOMS FILTER, DATE RANGE & DOWNLOAD */}
           {activeTab === 'report' && (
             <div style={{ padding: '16px' }}>
               <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
@@ -1723,9 +1658,9 @@ export default function App() {
                 </div>
               </div>
 
-              {/* REPORT ROOM FILTER CONTROLS */}
+              {/* REPORT ROOM & DATE RANGE FILTER CONTROLS */}
               <div className="no-print" style={{ backgroundColor: '#fff', padding: '14px', borderRadius: '20px', border: '1px solid #f1f5f9', boxShadow: '0 4px 15px rgba(0,0,0,0.02)', marginBottom: '14px' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
                   <div>
                     <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>प्रॉपर्टी चुनें:</label>
                     <select value={reportFilter.propName} onChange={e => setReportFilter({ ...reportFilter, propName: e.target.value })} style={{ width: '100%', padding: '8px', borderRadius: '12px', border: '1px solid #cbd5e1', marginTop: '4px', fontWeight: '700', outline: 'none' }}>
@@ -1744,9 +1679,31 @@ export default function App() {
                     </select>
                   </div>
                 </div>
+
+                {/* DATE RANGE FILTER */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>दिनांक से (Start Date):</label>
+                    <input 
+                      type="date" 
+                      value={reportFilter.startDate} 
+                      onChange={e => setReportFilter({ ...reportFilter, startDate: e.target.value })}
+                      style={{ width: '92%', padding: '7px 10px', borderRadius: '10px', border: '1px solid #cbd5e1', marginTop: '4px', fontSize: '12px', outline: 'none' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>दिनांक तक (End Date):</label>
+                    <input 
+                      type="date" 
+                      value={reportFilter.endDate} 
+                      onChange={e => setReportFilter({ ...reportFilter, endDate: e.target.value })}
+                      style={{ width: '92%', padding: '7px 10px', borderRadius: '10px', border: '1px solid #cbd5e1', marginTop: '4px', fontSize: '12px', outline: 'none' }}
+                    />
+                  </div>
+                </div>
               </div>
 
-              {/* CLEAN REPORT TABLE MATCHING SCREENSHOT */}
+              {/* REPORT STATEMENT TABLE */}
               <div style={{ backgroundColor: '#fff', padding: '16px', borderRadius: '24px', border: '1px solid #f1f5f9', boxShadow: '0 6px 20px rgba(0,0,0,0.03)' }}>
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse', textAlign: 'left' }}>
@@ -1764,17 +1721,28 @@ export default function App() {
                       {rooms
                         .filter(r => reportFilter.propName === 'all' || r.propName === reportFilter.propName)
                         .filter(r => reportFilter.roomId === 'all' || r.id === reportFilter.roomId)
-                        .filter(r => !searchQuery || r.roomNo.toLowerCase().includes(searchQuery.toLowerCase()) || (r.tenant && r.tenant.toLowerCase().includes(searchQuery.toLowerCase())) || (r.phone && r.phone.includes(searchQuery)) || r.propName.toLowerCase().includes(searchQuery.toLowerCase()))
-                        .map(r => (
-                          <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9', verticalAlign: 'top' }}>
-                            <td style={{ padding: '10px 6px', fontWeight: '800', color: '#0f172a' }}>{r.roomNo}</td>
-                            <td style={{ padding: '10px 6px', color: '#475569' }}>{r.status === 'occupied' ? (r.tenant || 'किरायेदार') : 'खाली'}</td>
-                            <td style={{ padding: '10px 6px', fontWeight: '600' }}>₹{getRentTotalDue(r)}</td>
-                            <td style={{ padding: '10px 6px', color: '#64748b' }}>₹{getBijliTotal(r)}</td>
-                            <td style={{ padding: '10px 6px', color: '#10b981', fontWeight: '600' }}>₹{getPaidTotal(r)}</td>
-                            <td style={{ padding: '10px 6px', color: '#0284c7', fontWeight: '800' }}>₹{getRoomBakaya(r)}</td>
-                          </tr>
-                        ))}
+                        .filter(r => {
+                          const s = (tabSearches.report || '').toLowerCase();
+                          if (!s) return true;
+                          return r.roomNo.toLowerCase().includes(s) || (r.tenant && r.tenant.toLowerCase().includes(s)) || (r.phone && r.phone.includes(s));
+                        })
+                        .map(r => {
+                          const pList = getFilteredPaymentsForReport(r);
+                          const bList = getFilteredBijliForReport(r);
+                          const bTotal = bList.reduce((acc, curr) => acc + (Number(curr.bill) || 0), 0);
+                          const pTotal = pList.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+
+                          return (
+                            <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9', verticalAlign: 'top' }}>
+                              <td style={{ padding: '10px 6px', fontWeight: '800', color: '#0f172a' }}>{r.roomNo}</td>
+                              <td style={{ padding: '10px 6px', color: '#475569' }}>{r.status === 'occupied' ? (r.tenant || 'किरायेदार') : 'खाली'}</td>
+                              <td style={{ padding: '10px 6px', fontWeight: '600' }}>₹{getRentTotalDue(r)}</td>
+                              <td style={{ padding: '10px 6px', color: '#64748b' }}>₹{bTotal}</td>
+                              <td style={{ padding: '10px 6px', color: '#10b981', fontWeight: '600' }}>₹{pTotal}</td>
+                              <td style={{ padding: '10px 6px', color: '#0284c7', fontWeight: '800' }}>₹{getRoomBakaya(r)}</td>
+                            </tr>
+                          );
+                        })}
                     </tbody>
                   </table>
                 </div>
@@ -2013,7 +1981,7 @@ export default function App() {
         </div>
       )}
 
-      {/* EXACT 4 ORIGINAL BUTTONS FLOATING BOTTOM NAVIGATION */}
+      {/* 4 ORIGINAL BUTTONS FLOATING BOTTOM NAVIGATION */}
       <nav className="no-print" style={{ position: 'fixed', bottom: 12, left: '50%', transform: 'translateX(-50%)', width: '92%', maxWidth: '420px', height: '62px', backgroundColor: '#fff', borderRadius: '35px', display: 'flex', justifyContent: 'space-around', alignItems: 'center', zIndex: 1000, boxShadow: '0 8px 30px rgba(2, 132, 199, 0.12)', border: '1px solid #e0f2fe', padding: '0 10px' }}>
         {[
           { id: 'dashboard', label: 'डैशबोर्ड', icon: '田' },
