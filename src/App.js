@@ -589,7 +589,6 @@ export default function App() {
     setShowAddRoom(true);
   };
 
-  // Naye Kirayedar ke liye fresh clean form
   const openNewTenantOccupiedModal = (room) => {
     setEditingRoomId(room.id);
     setRoomForm({
@@ -651,7 +650,6 @@ export default function App() {
         currentReading: Number(roomForm.initialReading) || 0,
         isVacated: roomForm.status === 'vacant',
         vacateDate: roomForm.status === 'vacant' ? (r.vacateDate || new Date().toISOString().split('T')[0]) : null,
-        // Naye kirayedar aane par billing fresh start
         payments: isSwitchingToNewTenant ? [] : (r.payments || []),
         electricityHistory: isSwitchingToNewTenant ? [] : (r.electricityHistory || [])
       } : r);
@@ -679,7 +677,7 @@ export default function App() {
         vacateDate: roomForm.status === 'vacant' ? new Date().toISOString().split('T')[0] : null,
         electricityHistory: [],
         payments: [],
-        tenantHistory: [] // Purane kirayedaro ka record yahan archive hoga
+        tenantHistory: []
       };
       updated = [newR, ...rooms];
       alert('नया कमरा सुरक्षित हो गया!');
@@ -689,7 +687,6 @@ export default function App() {
     setEditingRoomId(null);
   };
 
-  // Kamra khali karte waqt purana data archive karna
   const handleToggleRoomVacate = (room) => {
     if (room.status === 'occupied') {
       const chargeable = calculateChargeableMonths({ ...room, isVacated: true, vacateDate: new Date().toISOString().split('T')[0] });
@@ -704,7 +701,7 @@ export default function App() {
       } else {
         msg += `👉 किरायेदार से वसूलने योग्य शेष राशि: ₹${grossBakaya - deposit}`;
       }
-      msg += `\n\nक्या आप वाकई कमरा खाली (Vacant) करना चाहते हैं? (किरायेदार का पूरा डेटा इतिहास में सुरक्षित रहेगा)`;
+      msg += `\n\nक्या आप इस कमरे को खाली (Vacant) करना चाहते हैं? (किरायेदार का पूरा डेटा इतिहास में सुरक्षित रहेगा)`;
 
       if (window.confirm(msg)) {
         const vacateToday = new Date().toISOString().split('T')[0];
@@ -744,10 +741,10 @@ export default function App() {
         } : r);
 
         updateRoomsInDb(updated);
-        alert(`कमरा ${room.roomNo} खाली मार्क हो गया है और ${room.tenant} का संपूर्ण डेटा इतिहास में सुरक्षित कर दिया गया है!`);
+        alert(`कमरा ${room.roomNo} खाली मार्क हो गया है और ${room.tenant} का डेटा सुरक्षित कर दिया गया है!`);
       }
     } else {
-      if (window.confirm('क्या आप इस कमरे में नया किरायेदार जोड़ना (Occupied करना) चाहते हैं?')) {
+      if (window.confirm('क्या आप इस कमरे में नया किरायेदार (Occupied) जोड़ना चाहते हैं?')) {
         openNewTenantOccupiedModal(room);
       }
     }
@@ -1148,147 +1145,11 @@ export default function App() {
     );
   }
 
-  // 2. VIEW: KIRAYEDAAR PORTAL
-  if (authRole === 'tenant') {
-    const tenantRoom = rooms.find(r => r.id === loggedInTenantRoomId);
-    if (!tenantRoom || tenantRoom.status === 'vacant') {
-      return (
-        <div style={{ padding: '40px 20px', textAlign: 'center', fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif" }}>
-          <p style={{ color: '#64748b' }}>खाता सक्रिय नहीं मिला या कमरा खाली हो चुका है।</p>
-          <button onClick={handleLogout} style={{ padding: '10px 20px', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '30px', fontWeight: '700' }}>लॉगिन स्क्रीन पर जाएं</button>
-        </div>
-      );
-    }
-
-    const bakaya = getRoomBakaya(tenantRoom);
-    const chargeableMonths = calculateChargeableMonths(tenantRoom);
-    const tInput = meterInputs[tenantRoom.id] || { curr: '', meterPhoto: '' };
-    const dynamicUpiUri = `upi://pay?pa=${payConfig.upiId}&pn=${encodeURIComponent(payConfig.accHolder)}&am=${bakaya}&cu=INR&tn=Rent_${encodeURIComponent(tenantRoom.roomNo)}`;
-    const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(dynamicUpiUri)}`;
-
-    const tenantLast4 = (tenantRoom.phone || '').replace(/\D/g, '').slice(-4) || 'XXXX';
-    const tenantYear = (tenantRoom.dob || '').split('-')[0] || 'YYYY';
-
-    return (
-      <div style={{ maxWidth: '450px', margin: '0 auto', minHeight: '100vh', backgroundColor: '#f8fafc', color: '#0f172a', paddingBottom: '30px', fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif" }}>
-        <header style={{ backgroundColor: '#fff', padding: '18px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <div style={{ fontSize: '20px', fontWeight: '800', color: '#0284c7' }}>{tenantRoom.tenant}</div>
-            <div style={{ fontSize: '13px', color: '#64748b', fontWeight: '500' }}>Good morning! · {tenantRoom.roomNo}</div>
-          </div>
-          <button onClick={handleLogout} style={{ backgroundColor: '#fef2f2', color: '#ef4444', border: '1px solid #fecaca', padding: '6px 14px', borderRadius: '20px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>
-            Logout
-          </button>
-        </header>
-
-        <div style={{ padding: '20px' }}>
-          <div style={{ backgroundColor: '#f0f9ff', borderRadius: '20px', padding: '14px 16px', border: '1px solid #bae6fd', marginBottom: '16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '16px' }}>🔐</span>
-              <strong style={{ fontSize: '13px', color: '#0369a1' }}>पासवर्ड हिंट:</strong>
-            </div>
-            <div style={{ fontSize: '12px', color: '#0284c7', marginTop: '6px' }}>
-              मोबाइल अंतिम 4 अंक [<strong>{tenantLast4}</strong>] + जन्म वर्ष [<strong>{tenantYear}</strong>]
-            </div>
-          </div>
-
-          <div style={{ backgroundColor: '#fff', borderRadius: '24px', padding: '24px', border: '1px solid #f1f5f9', boxShadow: '0 4px 20px rgba(0,0,0,0.03)', marginBottom: '16px', textAlign: 'center' }}>
-            <div style={{ fontSize: '13px', color: '#64748b', fontWeight: '600' }}>कुल बकाया राशि (Total Due)</div>
-            <div style={{ fontSize: '36px', fontWeight: '900', color: bakaya > 0 ? '#0284c7' : '#10b981', margin: '6px 0' }}>
-              ₹{bakaya.toLocaleString()}
-            </div>
-            <div style={{ fontSize: '13px', fontWeight: '500', color: '#64748b' }}>
-              मासिक किराया: ₹{tenantRoom.rent} | कुल देय: {chargeableMonths} माह
-            </div>
-            
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '16px', paddingTop: '12px', borderTop: '1px solid #f1f5f9' }}>
-              <div style={{ backgroundColor: '#f8fafc', padding: '10px', borderRadius: '16px', border: '1px solid #f1f5f9' }}>
-                <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '600' }}>एडवांस</div>
-                <div style={{ fontSize: '16px', fontWeight: '800', color: '#0284c7' }}>₹{tenantRoom.depositAmount || 0}</div>
-              </div>
-              <div style={{ backgroundColor: '#f8fafc', padding: '10px', borderRadius: '16px', border: '1px solid #f1f5f9' }}>
-                <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '600' }}>सिक्योरिटी</div>
-                <div style={{ fontSize: '16px', fontWeight: '800', color: '#0284c7' }}>₹{tenantRoom.security || 0}</div>
-              </div>
-            </div>
-          </div>
-
-          <div style={{ backgroundColor: '#fff', borderRadius: '24px', padding: '20px', border: '1px solid #f1f5f9', textAlign: 'center', marginBottom: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}>
-            <strong style={{ fontSize: '15px', display: 'block', color: '#0f172a', marginBottom: '12px' }}>
-              ⚡ ऑटो-अमाउंट UPI QR कोड
-            </strong>
-            <img
-              src={qrImageUrl}
-              alt="UPI QR Code"
-              style={{ width: '180px', height: '180px', margin: '0 auto 14px auto', display: 'block', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '8px' }}
-            />
-            <a
-              href={dynamicUpiUri}
-              style={{ display: 'block', width: '90%', margin: '0 auto', backgroundColor: '#0284c7', color: '#fff', textDecoration: 'none', padding: '14px 10px', borderRadius: '30px', fontWeight: '800', fontSize: '14px', boxShadow: '0 4px 12px rgba(2, 132, 199, 0.25)' }}
-            >
-              📲 Pay ₹{bakaya} via UPI
-            </a>
-          </div>
-
-          <div style={{ backgroundColor: '#fff', border: '1px solid #f1f5f9', borderRadius: '24px', padding: '20px', marginBottom: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}>
-            <strong style={{ fontSize: '14px', color: '#0f172a', display: 'block', marginBottom: '10px' }}>
-              ✓ पेमेंट के बाद UTR दर्ज करें:
-            </strong>
-            <input
-              type="number"
-              placeholder="जमा राशि (₹)"
-              value={utrForm.amount}
-              onChange={e => setUtrForm({ ...utrForm, amount: e.target.value })}
-              style={{ width: '92%', padding: '10px 14px', fontSize: '14px', borderRadius: '12px', border: '1px solid #cbd5e1', marginBottom: '10px', outline: 'none' }}
-            />
-            <input
-              type="text"
-              placeholder="12-अंकों का UPI UTR"
-              value={utrForm.utrNo}
-              onChange={e => setUtrForm({ ...utrForm, utrNo: e.target.value })}
-              style={{ width: '92%', padding: '10px 14px', fontSize: '14px', borderRadius: '12px', border: '1px solid #cbd5e1', marginBottom: '12px', outline: 'none' }}
-            />
-            <button
-              type="button"
-              onClick={() => handleTenantAutoDepositUTR(tenantRoom)}
-              style={{ width: '100%', backgroundColor: '#0f172a', color: '#fff', border: 'none', padding: '12px', borderRadius: '30px', fontWeight: '700', fontSize: '14px', cursor: 'pointer' }}
-            >
-              UTR वेरीफाई करें
-            </button>
-          </div>
-
-          <div style={{ backgroundColor: '#fff', borderRadius: '24px', padding: '20px', border: '1px solid #f1f5f9', marginBottom: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}>
-            <strong style={{ fontSize: '14px', color: '#0f172a', display: 'block', marginBottom: '4px' }}>📸 बिजली मीटर रीडिंग</strong>
-            <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '12px' }}>पिछली रीडिंग: <strong>{tenantRoom.currentReading || tenantRoom.initialReading}</strong></div>
-            <input
-              type="number"
-              placeholder="वर्तमान मीटर रीडिंग"
-              value={tInput.curr}
-              onChange={e => setMeterInputs({ ...meterInputs, [tenantRoom.id]: { ...tInput, curr: e.target.value } })}
-              style={{ width: '92%', padding: '10px 14px', fontSize: '14px', borderRadius: '12px', border: '1px solid #cbd5e1', marginBottom: '10px', outline: 'none' }}
-            />
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={e => handleMeterPhotoUpload(tenantRoom.id, e.target.files[0])}
-              style={{ marginBottom: '12px', fontSize: '12px' }}
-            />
-            {tInput.meterPhoto && <img src={tInput.meterPhoto} alt="Preview" style={{ width: '100%', maxHeight: '140px', objectFit: 'cover', borderRadius: '12px', marginBottom: '12px' }} />}
-            <button onClick={() => handleTenantReadingSubmit(tenantRoom)} style={{ width: '100%', backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '12px', borderRadius: '30px', fontSize: '14px', fontWeight: '700', cursor: 'pointer' }}>
-              रीडिंग सबमिट करें
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   // 3. VIEW: OWNER DASHBOARD
   const selectedRoom = rooms.find(r => r.id === selectedRoomId);
 
   return (
-    <div style={{ maxWidth: '450px', margin: '0 auto', minHeight: '100vh', backgroundColor: '#f8fafc', color: '#0f172a', paddingBottom: '85px', fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif" }}>
+    <div style={{ maxWidth: '450px', margin: '0 auto', minHeight: '100vh', backgroundColor: '#f8fafc', color: '#0f172a', paddingBottom: '90px', fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif" }}>
       {/* TOP HEADER MATCHING PHOTO */}
       <header className="no-print" style={{ backgroundColor: '#fff', padding: '18px 20px', borderBottom: '1px solid #f1f5f9' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1322,7 +1183,7 @@ export default function App() {
             <span style={{ color: '#0284c7', marginRight: '8px', fontSize: '16px' }}>🔍</span>
             <input
               type="text"
-              placeholder="Search for properties!"
+              placeholder="Search for properties or rooms!"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               style={{ border: 'none', outline: 'none', width: '100%', fontSize: '14px', color: '#0f172a', fontWeight: '500' }}
@@ -1976,40 +1837,37 @@ export default function App() {
         </div>
       )}
 
-      {/* BOTTOM NAVIGATION MATCHING PHOTO EXACTLY */}
-      <nav className="no-print" style={{ position: 'fixed', bottom: 12, left: '50%', transform: 'translateX(-50%)', width: '92%', maxWidth: '420px', height: '64px', backgroundColor: '#64748b', borderRadius: '35px', display: 'flex', justifyContent: 'space-around', alignItems: 'center', zIndex: 1000, boxShadow: '0 8px 25px rgba(0,0,0,0.15)', padding: '0 8px' }}>
-        <button onClick={() => { setSelectedRoomId(null); setActiveTab('dashboard'); }} style={{ background: 'none', border: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', color: activeTab === 'dashboard' ? '#38bdf8' : '#e2e8f0', cursor: 'pointer', flex: 1 }}>
-          <span style={{ fontSize: '18px' }}>🏠</span>
-          <span style={{ fontSize: '11px', fontWeight: '700' }}>Rent</span>
-        </button>
-
-        <button onClick={() => { setSelectedRoomId(null); setActiveTab('properties'); }} style={{ background: 'none', border: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', color: activeTab === 'properties' ? '#38bdf8' : '#e2e8f0', cursor: 'pointer', flex: 1 }}>
-          <span style={{ fontSize: '18px' }}>🏷️</span>
-          <span style={{ fontSize: '11px', fontWeight: '700' }}>Sale</span>
-        </button>
-
-        {/* Center Floating Plus Action Button */}
-        <button onClick={() => { 
-          if (!isOwnerPro && rooms.length >= FREE_ROOM_LIMIT) {
-            setShowPayModal(true);
-            return;
-          }
-          setEditingRoomId(null); 
-          setRoomForm({ propName: properties[0]?.name || '', roomNo: '', status: 'occupied', tenant: '', phone: '', dob: '', idNumber: '', pin: '', rent: '', security: '', depositAmount: '', otherCharges: '', otherChargesNote: '', moveInDate: '2026-09-10', initialReading: '' }); 
-          setShowAddRoom(true); 
-        }} style={{ width: '48px', height: '48px', borderRadius: '50%', backgroundColor: '#fff', border: '3px solid #38bdf8', color: '#0284c7', fontSize: '24px', fontWeight: '900', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transform: 'translateY(-14px)', boxShadow: '0 4px 15px rgba(56, 189, 248, 0.4)' }}>
-          +
-        </button>
-
-        <button onClick={() => { setSelectedRoomId(null); setActiveTab('khata'); }} style={{ background: 'none', border: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', color: activeTab === 'khata' ? '#38bdf8' : '#e2e8f0', cursor: 'pointer', flex: 1 }}>
-          <span style={{ fontSize: '18px' }}>🏢</span>
-          <span style={{ fontSize: '11px', fontWeight: '700' }}>Comm.</span>
-        </button>
-
-        <button onClick={() => { setSelectedRoomId(null); setActiveTab('report'); }} style={{ background: 'none', border: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', color: activeTab === 'report' ? '#38bdf8' : '#e2e8f0', cursor: 'pointer', flex: 1 }}>
-          <span style={{ fontSize: '18px' }}>🤍</span>
-          <span style={{ fontSize: '11px', fontWeight: '700' }}>Liked</span>
-        </button>
+      {/* EXACT 4 ORIGINAL BUTTONS FLOATING BOTTOM NAVIGATION */}
+      <nav className="no-print" style={{ position: 'fixed', bottom: 12, left: '50%', transform: 'translateX(-50%)', width: '92%', maxWidth: '420px', height: '62px', backgroundColor: '#fff', borderRadius: '35px', display: 'flex', justifyContent: 'space-around', alignItems: 'center', zIndex: 1000, boxShadow: '0 8px 30px rgba(2, 132, 199, 0.12)', border: '1px solid #e0f2fe', padding: '0 10px' }}>
+        {[
+          { id: 'dashboard', label: 'डैशबोर्ड', icon: '田' },
+          { id: 'properties', label: 'प्रॉपर्टी', icon: '🏢' },
+          { id: 'khata', label: 'खाता बही', icon: '📖' },
+          { id: 'report', label: 'रिपोर्ट', icon: '📄' }
+        ].map(item => {
+          const isActive = activeTab === item.id;
+          return (
+            <button
+              key={item.id}
+              onClick={() => { setSelectedRoomId(null); setActiveTab(item.id); }}
+              style={{
+                background: 'none',
+                border: 'none',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: isActive ? '#0284c7' : '#64748b',
+                cursor: 'pointer',
+                flex: 1,
+                padding: '4px 0'
+              }}
+            >
+              <span style={{ fontSize: '18px', color: isActive ? '#0284c7' : '#64748b' }}>{item.icon}</span>
+              <span style={{ fontSize: '11px', fontWeight: isActive ? '800' : '600', marginTop: '2px' }}>{item.label}</span>
+            </button>
+          );
+        })}
       </nav>
 
       {/* PRINT STYLES & FONTS */}
