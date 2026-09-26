@@ -526,7 +526,8 @@ export default function App() {
   const handleShareReport = async () => {
     const filtered = rooms
       .filter(r => reportFilter.propName === 'all' || r.propName === reportFilter.propName)
-      .filter(r => reportFilter.roomId === 'all' || r.id === reportFilter.roomId);
+      .filter(r => reportFilter.roomId === 'all' || r.id === reportFilter.roomId)
+      .filter(r => !searchQuery || r.roomNo.toLowerCase().includes(searchQuery.toLowerCase()) || (r.tenant && r.tenant.toLowerCase().includes(searchQuery.toLowerCase())));
 
     let summaryText = `*Kiraya Manager Statement Report*\n`;
     summaryText += `प्रॉपर्टी: ${reportFilter.propName === 'all' ? 'सभी प्रॉपर्टीज' : reportFilter.propName}\n`;
@@ -701,7 +702,7 @@ export default function App() {
       } else {
         msg += `👉 किरायेदार से वसूलने योग्य शेष राशि: ₹${grossBakaya - deposit}`;
       }
-      msg += `\n\nक्या आप इस कमरे को खाली (Vacant) करना चाहते हैं? (किरायेदार का पूरा डेटा इतिहास में सुरक्षित रहेगा)`;
+      msg += `\n\nक्या आप वाकई कमरा खाली (Vacant) करना चाहते हैं? (किरायेदार का पूरा डेटा इतिहास में सुरक्षित रहेगा)`;
 
       if (window.confirm(msg)) {
         const vacateToday = new Date().toISOString().split('T')[0];
@@ -1145,6 +1146,142 @@ export default function App() {
     );
   }
 
+  // 2. VIEW: KIRAYEDAAR PORTAL
+  if (authRole === 'tenant') {
+    const tenantRoom = rooms.find(r => r.id === loggedInTenantRoomId);
+    if (!tenantRoom || tenantRoom.status === 'vacant') {
+      return (
+        <div style={{ padding: '40px 20px', textAlign: 'center', fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif" }}>
+          <p style={{ color: '#64748b' }}>खाता सक्रिय नहीं मिला या कमरा खाली हो चुका है।</p>
+          <button onClick={handleLogout} style={{ padding: '10px 20px', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '30px', fontWeight: '700' }}>लॉगिन स्क्रीन पर जाएं</button>
+        </div>
+      );
+    }
+
+    const bakaya = getRoomBakaya(tenantRoom);
+    const chargeableMonths = calculateChargeableMonths(tenantRoom);
+    const tInput = meterInputs[tenantRoom.id] || { curr: '', meterPhoto: '' };
+    const dynamicUpiUri = `upi://pay?pa=${payConfig.upiId}&pn=${encodeURIComponent(payConfig.accHolder)}&am=${bakaya}&cu=INR&tn=Rent_${encodeURIComponent(tenantRoom.roomNo)}`;
+    const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(dynamicUpiUri)}`;
+
+    const tenantLast4 = (tenantRoom.phone || '').replace(/\D/g, '').slice(-4) || 'XXXX';
+    const tenantYear = (tenantRoom.dob || '').split('-')[0] || 'YYYY';
+
+    return (
+      <div style={{ maxWidth: '450px', margin: '0 auto', minHeight: '100vh', backgroundColor: '#f8fafc', color: '#0f172a', paddingBottom: '30px', fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif" }}>
+        <header style={{ backgroundColor: '#fff', padding: '18px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: '20px', fontWeight: '800', color: '#0284c7' }}>{tenantRoom.tenant}</div>
+            <div style={{ fontSize: '13px', color: '#64748b', fontWeight: '500' }}>Good morning! · {tenantRoom.roomNo}</div>
+          </div>
+          <button onClick={handleLogout} style={{ backgroundColor: '#fef2f2', color: '#ef4444', border: '1px solid #fecaca', padding: '6px 14px', borderRadius: '20px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>
+            Logout
+          </button>
+        </header>
+
+        <div style={{ padding: '20px' }}>
+          <div style={{ backgroundColor: '#f0f9ff', borderRadius: '20px', padding: '14px 16px', border: '1px solid #bae6fd', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '16px' }}>🔐</span>
+              <strong style={{ fontSize: '13px', color: '#0369a1' }}>पासवर्ड हिंट:</strong>
+            </div>
+            <div style={{ fontSize: '12px', color: '#0284c7', marginTop: '6px' }}>
+              मोबाइल अंतिम 4 अंक [<strong>{tenantLast4}</strong>] + जन्म वर्ष [<strong>{tenantYear}</strong>]
+            </div>
+          </div>
+
+          <div style={{ backgroundColor: '#fff', borderRadius: '24px', padding: '24px', border: '1px solid #f1f5f9', boxShadow: '0 4px 20px rgba(0,0,0,0.03)', marginBottom: '16px', textAlign: 'center' }}>
+            <div style={{ fontSize: '13px', color: '#64748b', fontWeight: '600' }}>कुल बकाया राशि (Total Due)</div>
+            <div style={{ fontSize: '36px', fontWeight: '900', color: bakaya > 0 ? '#0284c7' : '#10b981', margin: '6px 0' }}>
+              ₹{bakaya.toLocaleString()}
+            </div>
+            <div style={{ fontSize: '13px', fontWeight: '500', color: '#64748b' }}>
+              मासिक किराया: ₹{tenantRoom.rent} | कुल देय: {chargeableMonths} माह
+            </div>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '16px', paddingTop: '12px', borderTop: '1px solid #f1f5f9' }}>
+              <div style={{ backgroundColor: '#f8fafc', padding: '10px', borderRadius: '16px', border: '1px solid #f1f5f9' }}>
+                <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '600' }}>एडवांस</div>
+                <div style={{ fontSize: '16px', fontWeight: '800', color: '#0284c7' }}>₹{tenantRoom.depositAmount || 0}</div>
+              </div>
+              <div style={{ backgroundColor: '#f8fafc', padding: '10px', borderRadius: '16px', border: '1px solid #f1f5f9' }}>
+                <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '600' }}>सिक्योरिटी</div>
+                <div style={{ fontSize: '16px', fontWeight: '800', color: '#0284c7' }}>₹{tenantRoom.security || 0}</div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ backgroundColor: '#fff', borderRadius: '24px', padding: '20px', border: '1px solid #f1f5f9', textAlign: 'center', marginBottom: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}>
+            <strong style={{ fontSize: '15px', display: 'block', color: '#0f172a', marginBottom: '12px' }}>
+              ⚡ ऑटो-अमाउंट UPI QR कोड
+            </strong>
+            <img
+              src={qrImageUrl}
+              alt="UPI QR Code"
+              style={{ width: '180px', height: '180px', margin: '0 auto 14px auto', display: 'block', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '8px' }}
+            />
+            <a
+              href={dynamicUpiUri}
+              style={{ display: 'block', width: '90%', margin: '0 auto', backgroundColor: '#0284c7', color: '#fff', textDecoration: 'none', padding: '14px 10px', borderRadius: '30px', fontWeight: '800', fontSize: '14px', boxShadow: '0 4px 12px rgba(2, 132, 199, 0.25)' }}
+            >
+              📲 Pay ₹{bakaya} via UPI
+            </a>
+          </div>
+
+          <div style={{ backgroundColor: '#fff', border: '1px solid #f1f5f9', borderRadius: '24px', padding: '20px', marginBottom: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}>
+            <strong style={{ fontSize: '14px', color: '#0f172a', display: 'block', marginBottom: '10px' }}>
+              ✓ पेमेंट के बाद UTR दर्ज करें:
+            </strong>
+            <input
+              type="number"
+              placeholder="जमा राशि (₹)"
+              value={utrForm.amount}
+              onChange={e => setUtrForm({ ...utrForm, amount: e.target.value })}
+              style={{ width: '92%', padding: '10px 14px', fontSize: '14px', borderRadius: '12px', border: '1px solid #cbd5e1', marginBottom: '10px', outline: 'none' }}
+            />
+            <input
+              type="text"
+              placeholder="12-अंकों का UPI UTR"
+              value={utrForm.utrNo}
+              onChange={e => setUtrForm({ ...utrForm, utrNo: e.target.value })}
+              style={{ width: '92%', padding: '10px 14px', fontSize: '14px', borderRadius: '12px', border: '1px solid #cbd5e1', marginBottom: '12px', outline: 'none' }}
+            />
+            <button
+              type="button"
+              onClick={() => handleTenantAutoDepositUTR(tenantRoom)}
+              style={{ width: '100%', backgroundColor: '#0f172a', color: '#fff', border: 'none', padding: '12px', borderRadius: '30px', fontWeight: '700', fontSize: '14px', cursor: 'pointer' }}
+            >
+              UTR वेरीफाई करें
+            </button>
+          </div>
+
+          <div style={{ backgroundColor: '#fff', borderRadius: '24px', padding: '20px', border: '1px solid #f1f5f9', marginBottom: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}>
+            <strong style={{ fontSize: '14px', color: '#0f172a', display: 'block', marginBottom: '4px' }}>📸 बिजली मीटर रीडिंग</strong>
+            <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '12px' }}>पिछली रीडिंग: <strong>{tenantRoom.currentReading || tenantRoom.initialReading}</strong></div>
+            <input
+              type="number"
+              placeholder="वर्तमान मीटर रीडिंग"
+              value={tInput.curr}
+              onChange={e => setMeterInputs({ ...meterInputs, [tenantRoom.id]: { ...tInput, curr: e.target.value } })}
+              style={{ width: '92%', padding: '10px 14px', fontSize: '14px', borderRadius: '12px', border: '1px solid #cbd5e1', marginBottom: '10px', outline: 'none' }}
+            />
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={e => handleMeterPhotoUpload(tenantRoom.id, e.target.files[0])}
+              style={{ marginBottom: '12px', fontSize: '12px' }}
+            />
+            {tInput.meterPhoto && <img src={tInput.meterPhoto} alt="Preview" style={{ width: '100%', maxHeight: '140px', objectFit: 'cover', borderRadius: '12px', marginBottom: '12px' }} />}
+            <button onClick={() => handleTenantReadingSubmit(tenantRoom)} style={{ width: '100%', backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '12px', borderRadius: '30px', fontSize: '14px', fontWeight: '700', cursor: 'pointer' }}>
+              रीडिंग सबमिट करें
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // 3. VIEW: OWNER DASHBOARD
   const selectedRoom = rooms.find(r => r.id === selectedRoomId);
 
@@ -1177,7 +1314,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* SEARCH BAR PILL MATCHING PHOTO */}
+        {/* UNIVERSAL SEARCH BAR PILL MATCHING PHOTO */}
         <div style={{ marginTop: '16px', position: 'relative' }}>
           <div style={{ display: 'flex', alignItems: 'center', backgroundColor: '#fff', border: '1.5px solid #0284c7', borderRadius: '30px', padding: '8px 16px', boxShadow: '0 2px 8px rgba(2, 132, 199, 0.08)' }}>
             <span style={{ color: '#0284c7', marginRight: '8px', fontSize: '16px' }}>🔍</span>
@@ -1188,6 +1325,9 @@ export default function App() {
               onChange={e => setSearchQuery(e.target.value)}
               style={{ border: 'none', outline: 'none', width: '100%', fontSize: '14px', color: '#0f172a', fontWeight: '500' }}
             />
+            {searchQuery && (
+              <span onClick={() => setSearchQuery('')} style={{ color: '#94a3b8', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', paddingLeft: '8px' }}>✕</span>
+            )}
           </div>
         </div>
       </header>
@@ -1433,7 +1573,7 @@ export default function App() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {rooms
                   .filter(r => propertyFilter === 'all' || r.propName === propertyFilter)
-                  .filter(r => !searchQuery || r.roomNo.toLowerCase().includes(searchQuery.toLowerCase()) || (r.tenant && r.tenant.toLowerCase().includes(searchQuery.toLowerCase())) || r.propName.toLowerCase().includes(searchQuery.toLowerCase()))
+                  .filter(r => !searchQuery || r.roomNo.toLowerCase().includes(searchQuery.toLowerCase()) || (r.tenant && r.tenant.toLowerCase().includes(searchQuery.toLowerCase())) || (r.phone && r.phone.includes(searchQuery)) || r.propName.toLowerCase().includes(searchQuery.toLowerCase()))
                   .map(room => (
                     <div key={room.id} style={{ backgroundColor: '#fff', borderRadius: '24px', border: '1px solid #f1f5f9', boxShadow: '0 6px 20px rgba(0,0,0,0.04)', overflow: 'hidden' }}>
                       <div onClick={() => setSelectedRoomId(room.id)} style={{ cursor: 'pointer' }}>
@@ -1521,84 +1661,120 @@ export default function App() {
             <div style={{ padding: '16px' }}>
               <h2 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>📖 खाता बही (Ledger)</h2>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {rooms.map(room => {
-                  const rent = getRentTotalDue(room);
-                  const bijli = getBijliTotal(room);
-                  const paid = getPaidTotal(room);
-                  const bakaya = getRoomBakaya(room);
+                {rooms
+                  .filter(r => !searchQuery || r.roomNo.toLowerCase().includes(searchQuery.toLowerCase()) || (r.tenant && r.tenant.toLowerCase().includes(searchQuery.toLowerCase())) || (r.phone && r.phone.includes(searchQuery)))
+                  .map(room => {
+                    const rent = getRentTotalDue(room);
+                    const bijli = getBijliTotal(room);
+                    const paid = getPaidTotal(room);
+                    const bakaya = getRoomBakaya(room);
 
-                  return (
-                    <div key={room.id} style={{ backgroundColor: '#fff', padding: '16px', borderRadius: '20px', border: '1px solid #f1f5f9', boxShadow: '0 4px 15px rgba(0,0,0,0.02)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                          <strong style={{ fontSize: '16px', color: '#0f172a' }}>{room.roomNo}</strong> ({room.status === 'occupied' ? (room.tenant || 'किरायेदार') : 'खाली'})
-                          <div style={{ fontSize: '12px', color: '#64748b' }}>🏢 {room.propName}</div>
+                    return (
+                      <div key={room.id} style={{ backgroundColor: '#fff', padding: '16px', borderRadius: '20px', border: '1px solid #f1f5f9', boxShadow: '0 4px 15px rgba(0,0,0,0.02)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div>
+                            <strong style={{ fontSize: '16px', color: '#0f172a' }}>{room.roomNo}</strong> ({room.status === 'occupied' ? (room.tenant || 'किरायेदार') : 'खाली'})
+                            <div style={{ fontSize: '12px', color: '#64748b' }}>🏢 {room.propName}</div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <span style={{ fontSize: '11px', color: '#64748b' }}>बकाया:</span>
+                            <div style={{ fontSize: '18px', fontWeight: '900', color: bakaya > 0 ? '#0284c7' : '#10b981' }}>₹{bakaya.toLocaleString()}</div>
+                          </div>
                         </div>
-                        <div style={{ textAlign: 'right' }}>
-                          <span style={{ fontSize: '11px', color: '#64748b' }}>बकाया:</span>
-                          <div style={{ fontSize: '18px', fontWeight: '900', color: bakaya > 0 ? '#0284c7' : '#10b981' }}>₹{bakaya.toLocaleString()}</div>
+
+                        <div style={{ fontSize: '12px', color: '#64748b', margin: '10px 0', borderTop: '1px solid #f1f5f9', paddingTop: '8px' }}>
+                          किराया बिल: <strong>₹{rent}</strong> | बिजली: <strong>₹{bijli}</strong> | जमा: <strong style={{ color: '#10b981' }}>₹{paid}</strong>
                         </div>
-                      </div>
 
-                      <div style={{ fontSize: '12px', color: '#64748b', margin: '10px 0', borderTop: '1px solid #f1f5f9', paddingTop: '8px' }}>
-                        किराया बिल: <strong>₹{rent}</strong> | बिजली: <strong>₹{bijli}</strong> | जमा: <strong style={{ color: '#10b981' }}>₹{paid}</strong>
-                      </div>
-
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <button onClick={() => setSelectedRoomId(room.id)} style={{ flex: 1, backgroundColor: '#f0f9ff', color: '#0284c7', border: '1px solid #bae6fd', padding: '8px', borderRadius: '20px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>
-                          विवरण देखें
-                        </button>
-                        {room.status === 'occupied' && (
-                          <button onClick={() => { setPaymentModalRoom(room); setEditingPaymentId(null); setPaymentForm({ amount: String(bakaya || ''), mode: 'Cash', date: '2026-09-23', note: '' }); }} style={{ flex: 1, backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '8px', borderRadius: '20px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>
-                            + जमा दर्ज करें
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button onClick={() => setSelectedRoomId(room.id)} style={{ flex: 1, backgroundColor: '#f0f9ff', color: '#0284c7', border: '1px solid #bae6fd', padding: '8px', borderRadius: '20px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>
+                            विवरण देखें
                           </button>
-                        )}
+                          {room.status === 'occupied' && (
+                            <button onClick={() => { setPaymentModalRoom(room); setEditingPaymentId(null); setPaymentForm({ amount: String(bakaya || ''), mode: 'Cash', date: '2026-09-23', note: '' }); }} style={{ flex: 1, backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '8px', borderRadius: '20px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>
+                              + जमा दर्ज करें
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
               </div>
             </div>
           )}
 
+          {/* TAB 4: ADVANCED REPORT WITH 1-ROOM / ALL ROOMS FILTER & DOWNLOAD */}
           {activeTab === 'report' && (
             <div style={{ padding: '16px' }}>
-              <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-                <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '800' }}>📊 विस्तृत रिपोर्ट</h2>
-                <div style={{ display: 'flex', gap: '6px' }}>
+              <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
+                <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  📊 विस्तृत रिपोर्ट
+                </h2>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                   <button onClick={handleShareReport} style={{ backgroundColor: '#25D366', color: '#fff', border: 'none', padding: '8px 14px', borderRadius: '20px', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}>
                     WhatsApp
                   </button>
                   <button onClick={() => window.print()} style={{ backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '8px 14px', borderRadius: '20px', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}>
                     Print
                   </button>
+                  <button onClick={() => window.print()} style={{ backgroundColor: '#0f172a', color: '#fff', border: 'none', padding: '8px 14px', borderRadius: '20px', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}>
+                    📥 Download
+                  </button>
                 </div>
               </div>
 
-              <div style={{ backgroundColor: '#fff', padding: '16px', borderRadius: '20px', border: '1px solid #f1f5f9', boxShadow: '0 4px 15px rgba(0,0,0,0.02)' }}>
+              {/* REPORT ROOM FILTER CONTROLS */}
+              <div className="no-print" style={{ backgroundColor: '#fff', padding: '14px', borderRadius: '20px', border: '1px solid #f1f5f9', boxShadow: '0 4px 15px rgba(0,0,0,0.02)', marginBottom: '14px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>प्रॉपर्टी चुनें:</label>
+                    <select value={reportFilter.propName} onChange={e => setReportFilter({ ...reportFilter, propName: e.target.value })} style={{ width: '100%', padding: '8px', borderRadius: '12px', border: '1px solid #cbd5e1', marginTop: '4px', fontWeight: '700', outline: 'none' }}>
+                      <option value="all">सभी प्रॉपर्टीज</option>
+                      {properties.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>कमरा चुनें (1 कमरा या सभी):</label>
+                    <select value={reportFilter.roomId} onChange={e => setReportFilter({ ...reportFilter, roomId: e.target.value })} style={{ width: '100%', padding: '8px', borderRadius: '12px', border: '1px solid #cbd5e1', marginTop: '4px', fontWeight: '700', outline: 'none' }}>
+                      <option value="all">सभी कमरे (All Rooms)</option>
+                      {rooms
+                        .filter(r => reportFilter.propName === 'all' || r.propName === reportFilter.propName)
+                        .map(r => <option key={r.id} value={r.id}>{r.roomNo} ({r.tenant || 'खाली'})</option>)
+                      }
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* CLEAN REPORT TABLE MATCHING SCREENSHOT */}
+              <div style={{ backgroundColor: '#fff', padding: '16px', borderRadius: '24px', border: '1px solid #f1f5f9', boxShadow: '0 6px 20px rgba(0,0,0,0.03)' }}>
                 <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', fontSize: '11px', borderCollapse: 'collapse', textAlign: 'left' }}>
+                  <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse', textAlign: 'left' }}>
                     <thead>
                       <tr style={{ borderBottom: '2px solid #0284c7', backgroundColor: '#f0f9ff' }}>
-                        <th style={{ padding: '8px 4px' }}>कमरा</th>
-                        <th style={{ padding: '8px 4px' }}>किरायेदार</th>
-                        <th style={{ padding: '8px 4px' }}>किराया</th>
-                        <th style={{ padding: '8px 4px' }}>बिजली बिल</th>
-                        <th style={{ padding: '8px 4px' }}>जमा विवरण</th>
-                        <th style={{ padding: '8px 4px', color: '#0284c7' }}>बकाया</th>
+                        <th style={{ padding: '10px 6px', fontWeight: '800', color: '#0f172a' }}>कमरा</th>
+                        <th style={{ padding: '10px 6px', fontWeight: '800', color: '#0f172a' }}>किरायेदार</th>
+                        <th style={{ padding: '10px 6px', fontWeight: '800', color: '#0f172a' }}>किराया</th>
+                        <th style={{ padding: '10px 6px', fontWeight: '800', color: '#0f172a' }}>बिजली बिल</th>
+                        <th style={{ padding: '10px 6px', fontWeight: '800', color: '#0f172a' }}>जमा विवरण</th>
+                        <th style={{ padding: '10px 6px', fontWeight: '800', color: '#0284c7' }}>बकाया</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {rooms.map(r => (
-                        <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9', verticalAlign: 'top' }}>
-                          <td style={{ padding: '8px 4px', fontWeight: '800' }}>{r.roomNo}</td>
-                          <td style={{ padding: '8px 4px' }}>{r.status === 'occupied' ? (r.tenant || 'किरायेदार') : 'खाली'}</td>
-                          <td style={{ padding: '8px 4px' }}>₹{getRentTotalDue(r)}</td>
-                          <td style={{ padding: '8px 4px' }}>₹{getBijliTotal(r)}</td>
-                          <td style={{ padding: '8px 4px' }}>₹{getPaidTotal(r)}</td>
-                          <td style={{ padding: '8px 4px', color: '#0284c7', fontWeight: '800' }}>₹{getRoomBakaya(r)}</td>
-                        </tr>
-                      ))}
+                      {rooms
+                        .filter(r => reportFilter.propName === 'all' || r.propName === reportFilter.propName)
+                        .filter(r => reportFilter.roomId === 'all' || r.id === reportFilter.roomId)
+                        .filter(r => !searchQuery || r.roomNo.toLowerCase().includes(searchQuery.toLowerCase()) || (r.tenant && r.tenant.toLowerCase().includes(searchQuery.toLowerCase())) || (r.phone && r.phone.includes(searchQuery)) || r.propName.toLowerCase().includes(searchQuery.toLowerCase()))
+                        .map(r => (
+                          <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9', verticalAlign: 'top' }}>
+                            <td style={{ padding: '10px 6px', fontWeight: '800', color: '#0f172a' }}>{r.roomNo}</td>
+                            <td style={{ padding: '10px 6px', color: '#475569' }}>{r.status === 'occupied' ? (r.tenant || 'किरायेदार') : 'खाली'}</td>
+                            <td style={{ padding: '10px 6px', fontWeight: '600' }}>₹{getRentTotalDue(r)}</td>
+                            <td style={{ padding: '10px 6px', color: '#64748b' }}>₹{getBijliTotal(r)}</td>
+                            <td style={{ padding: '10px 6px', color: '#10b981', fontWeight: '600' }}>₹{getPaidTotal(r)}</td>
+                            <td style={{ padding: '10px 6px', color: '#0284c7', fontWeight: '800' }}>₹{getRoomBakaya(r)}</td>
+                          </tr>
+                        ))}
                     </tbody>
                   </table>
                 </div>
