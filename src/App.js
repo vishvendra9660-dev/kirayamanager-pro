@@ -18,7 +18,6 @@ const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
 const ADMIN_UPI = "vs.kumar4@ybl";
-const FREE_ROOM_LIMIT = 5;
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -44,7 +43,7 @@ export default function App() {
 
   // Subscription Modal State
   const [showPayModal, setShowPayModal] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState('monthly');
+  const [selectedPlan, setSelectedPlan] = useState('annual');
   const [subUtr, setSubUtr] = useState('');
   const [subSuccess, setSubSuccess] = useState('');
 
@@ -96,7 +95,7 @@ export default function App() {
   // Dainik Kharcha (Expenses) States with Room-wise & Category Support
   const [expenses, setExpenses] = useState([]);
   const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
-  const [showExpenseListModal, setShowExpenseListModal] = useState(false); // Dashboard click modal state
+  const [showExpenseListModal, setShowExpenseListModal] = useState(false);
   
   // Date range filter for expenses
   const [expenseDateFilter, setExpenseDateFilter] = useState({
@@ -109,7 +108,7 @@ export default function App() {
     amount: '',
     category: 'Safai / Sweeper',
     propName: '',
-    scope: 'common', // 'common' ya 'room'
+    scope: 'common',
     roomId: 'common',
     date: new Date().toISOString().split('T')[0],
     note: ''
@@ -195,7 +194,7 @@ export default function App() {
     depositAmount: '',
     otherCharges: '',
     otherChargesNote: '',
-    moveInDate: '2026-09-10',
+    moveInDate: new Date().toISOString().split('T')[0],
     initialReading: ''
   });
 
@@ -221,7 +220,7 @@ export default function App() {
   const [paymentForm, setPaymentForm] = useState({
     amount: '',
     mode: 'Cash',
-    date: '2026-09-23',
+    date: new Date().toISOString().split('T')[0],
     note: ''
   });
 
@@ -267,7 +266,6 @@ export default function App() {
   const getRoomTotalDue = (r) => getRentTotalDue(r) + getBijliTotal(r) + getOtherChargesTotal(r);
   const getRoomBakaya = (r) => Math.max(0, getRoomTotalDue(r) - getPaidTotal(r));
 
-  // Date range calculation helpers for Report
   const getFilteredPaymentsForReport = (r) => {
     return (r.payments || []).filter(p => {
       if (!p.date) return true;
@@ -296,7 +294,7 @@ export default function App() {
     window.location.assign(upiUri);
   };
 
-  // MULTI-OWNER DIRECT REGISTRATION (OTP REMOVED)
+  // 1-YEAR FREE REGISTRATION ENGINE
   const handleOwnerRegister = (e) => {
     e.preventDefault();
 
@@ -322,6 +320,9 @@ export default function App() {
       return;
     }
 
+    const now = new Date();
+    const oneYearLater = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
+
     const newOwnerProfile = {
       credentials: {
         id: cleanId,
@@ -331,6 +332,8 @@ export default function App() {
       },
       isPro: false,
       isVerifiedOwner: true,
+      trialStartDate: now.toISOString(),
+      trialEndDate: oneYearLater.toISOString(),
       payConfig: {
         upiId: ownerRegisterForm.upiId || '9876543210@paytm',
         accHolder: ownerRegisterForm.name || 'Vishvendra Kumar',
@@ -346,17 +349,16 @@ export default function App() {
     setActiveOwnerId(cleanId);
     setAuthRole('owner');
     setIsOwnerRegistering(false);
-    alert('आपका मकान मालिक खाता सफलतापूर्वक बन गया है!');
+    alert('बधाई हो! आपका मकान मालिक खाता बन गया है और आपको 1 वर्ष का मुफ़्त अनलिमिटेड एक्सेस मिला है।');
   };
 
-  // Multi-Owner Login
   const handleOwnerLogin = (e) => {
     e.preventDefault();
     const cleanId = ownerLoginForm.id.trim().toLowerCase();
     const cleanPass = ownerLoginForm.password.trim();
 
     if (cleanPass.length !== 8) {
-      alert('पासवर्ड ठीक 8 अक्षरों (characters) का होना चाहिए!');
+      alert('पासवर्ड ठीक 8 अक्षरों का होना चाहिए!');
       return;
     }
 
@@ -396,7 +398,6 @@ export default function App() {
     setShowChangeAdminPassModal(false);
   };
 
-  // Multi-Tenant Login
   const handleTenantLogin = (e) => {
     e.preventDefault();
     const phoneInput = tenantLoginForm.phone.trim().replace(/\D/g, '');
@@ -610,12 +611,36 @@ export default function App() {
     setShowAddRoom(true);
   };
 
+  // 1-YEAR TRIAL CHECK (NO 5-ROOM LIMIT ANYMORE)
+  const currentOwnerProfile = allOwnersData[activeOwnerId] || {};
+  const isOwnerPro = currentOwnerProfile.isPro || false;
+
+  const getTrialStatus = () => {
+    if (isOwnerPro) {
+      return { isExpired: false, isNearExpiry: false, daysRemaining: 999 };
+    }
+    const endStr = currentOwnerProfile.trialEndDate;
+    if (!endStr) {
+      return { isExpired: false, isNearExpiry: false, daysRemaining: 365 };
+    }
+    const end = new Date(endStr).getTime();
+    const now = new Date().getTime();
+    const diffDays = Math.ceil((end - now) / (1000 * 60 * 60 * 24));
+
+    if (diffDays <= 0) {
+      return { isExpired: true, isNearExpiry: false, daysRemaining: 0 };
+    } else if (diffDays <= 30) {
+      return { isExpired: false, isNearExpiry: true, daysRemaining: diffDays };
+    }
+    return { isExpired: false, isNearExpiry: false, daysRemaining: diffDays };
+  };
+
+  const trialInfo = getTrialStatus();
+
   const handleSaveRoom = (e) => {
     e.preventDefault();
 
-    const currentOwner = allOwnersData[activeOwnerId] || {};
-    const isPro = currentOwner.isPro || false;
-    if (!editingRoomId && !isPro && rooms.length >= FREE_ROOM_LIMIT) {
+    if (!isOwnerPro && trialInfo.isExpired) {
       setShowAddRoom(false);
       setShowPayModal(true);
       return;
@@ -786,7 +811,7 @@ export default function App() {
 
     setPaymentModalRoom(null);
     setEditingPaymentId(null);
-    setPaymentForm({ amount: '', mode: 'Cash', date: '2026-09-23', note: '' });
+    setPaymentForm({ amount: '', mode: 'Cash', date: new Date().toISOString().split('T')[0], note: '' });
   };
 
   const openEditPayment = (p, room) => {
@@ -795,7 +820,7 @@ export default function App() {
     setPaymentForm({
       amount: String(p.amount),
       mode: p.mode || 'Cash',
-      date: p.date || '2026-09-23',
+      date: p.date || new Date().toISOString().split('T')[0],
       note: p.note || ''
     });
   };
@@ -822,7 +847,7 @@ export default function App() {
     const bill = units * rate;
     const newEntry = {
       id: Date.now(),
-      date: input.date || '2026-09-23',
+      date: input.date || new Date().toISOString().split('T')[0],
       prev,
       curr,
       units,
@@ -838,7 +863,7 @@ export default function App() {
     } : r);
 
     updateRoomsInDb(updated);
-    setMeterInputs(prevMap => ({ ...prevMap, [room.id]: { curr: '', rate: '10', date: '2026-09-23', meterPhoto: '' } }));
+    setMeterInputs(prevMap => ({ ...prevMap, [room.id]: { curr: '', rate: '10', date: new Date().toISOString().split('T')[0], meterPhoto: '' } }));
     alert(`रीडिंग सुरक्षित हुई! ${units} यूनिट का ₹${bill} जुड़ गया।`);
   };
 
@@ -962,9 +987,6 @@ export default function App() {
     });
   };
 
-  const currentOwnerProfile = allOwnersData[activeOwnerId] || {};
-  const isOwnerPro = currentOwnerProfile.isPro || false;
-
   const planAmount = selectedPlan === 'monthly' ? 199 : 1499;
   const ownerUpiUri = `upi://pay?pa=${ADMIN_UPI}&pn=KirayaManagerPro&am=${planAmount}&cu=INR&tn=ProUpgrade_${activeOwnerId}`;
   const ownerQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(ownerUpiUri)}`;
@@ -976,7 +998,6 @@ export default function App() {
   const totalJamaFiltered = visibleRooms.reduce((acc, r) => acc + getPaidTotal(r), 0);
   const totalAdvanceFiltered = occupiedList.reduce((acc, r) => acc + (Number(r.security || 0) + Number(r.depositAmount || 0)), 0);
 
-  // Expense filtered by property AND Date Range
   const getFilteredExpenses = () => {
     return expenses
       .filter(exp => propertyFilter === 'all' || exp.propName === propertyFilter)
@@ -990,8 +1011,6 @@ export default function App() {
 
   const visibleExpenses = getFilteredExpenses();
   const totalExpenseFiltered = visibleExpenses.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
-  
-  // Real Net Profit / Loss calculation (Rent Collected - Total Filtered Expenses)
   const netProfitLoss = totalJamaFiltered - totalExpenseFiltered;
 
   // 1. GATEWAY SCREEN
@@ -1056,7 +1075,7 @@ export default function App() {
           ) : (
             isOwnerRegistering ? (
               <form onSubmit={handleOwnerRegister} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <strong style={{ fontSize: '15px', color: '#0284c7' }}>नया मकान मालिक खाता बनाएं (Direct Registration)</strong>
+                <strong style={{ fontSize: '15px', color: '#0284c7' }}>नया मकान मालिक खाता बनाएं (1 Year Free Access)</strong>
                 
                 <input
                   type="text"
@@ -1116,7 +1135,7 @@ export default function App() {
                   type="submit" 
                   style={{ width: '100%', backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '14px', borderRadius: '30px', fontWeight: '800', fontSize: '14px', cursor: 'pointer', marginTop: '6px', boxShadow: '0 4px 12px rgba(2, 132, 199, 0.25)' }}
                 >
-                  खाता बनाएं व डैशबोर्ड खोलें 🚀
+                  खाता बनाएं व 1 साल फ़्री चलाएं 🚀
                 </button>
                 <div style={{ textAlign: 'center', marginTop: '6px' }}>
                   <span onClick={() => setIsOwnerRegistering(false)} style={{ fontSize: '12px', color: '#0284c7', cursor: 'pointer', fontWeight: '700' }}>
@@ -1307,6 +1326,7 @@ export default function App() {
 
   return (
     <div style={{ maxWidth: '450px', margin: '0 auto', minHeight: '100vh', backgroundColor: '#f8fafc', color: '#0f172a', paddingBottom: '90px', fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif" }}>
+      
       {/* TOP HEADER */}
       <header className="no-print" style={{ backgroundColor: '#fff', padding: '18px 20px', borderBottom: '1px solid #f1f5f9' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1315,16 +1335,17 @@ export default function App() {
             <div>
               <div style={{ fontSize: '20px', fontWeight: '800', color: '#0284c7', lineHeight: '1.2' }}>{payConfig.accHolder || 'Vishvendra Kumar'}</div>
               <div style={{ fontSize: '12px', color: '#64748b' }}>
-                Good morning! {isOwnerPro ? <span style={{ color: '#10b981', fontWeight: 'bold' }}>⭐ PRO</span> : <span>({rooms.length}/{FREE_ROOM_LIMIT} Free)</span>}
+                {isOwnerPro ? (
+                  <span style={{ color: '#10b981', fontWeight: 'bold' }}>⭐ PRO (Active)</span>
+                ) : (
+                  <span>
+                    🎉 1-Year Free Trial ({trialInfo.daysRemaining} दिन शेष)
+                  </span>
+                )}
               </div>
             </div>
           </div>
           <div style={{ display: 'flex', gap: '6px' }}>
-            {!isOwnerPro && (
-              <button onClick={() => setShowPayModal(true)} style={{ backgroundColor: '#f59e0b', color: '#fff', border: 'none', padding: '6px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}>
-                ⚡ Pro
-              </button>
-            )}
             <button onClick={() => setShowChangeAdminPassModal(true)} style={{ backgroundColor: '#f0f9ff', color: '#0284c7', border: '1px solid #bae6fd', padding: '6px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}>
               🔑 Pass
             </button>
@@ -1333,6 +1354,36 @@ export default function App() {
             </button>
           </div>
         </div>
+
+        {/* 1 MONTH PRIOR EXPIRY REMINDER BANNER */}
+        {trialInfo.isNearExpiry && !isOwnerPro && (
+          <div style={{ marginTop: '12px', backgroundColor: '#fffbeb', border: '1.5px solid #fde68a', borderRadius: '14px', padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ fontSize: '11.5px', color: '#b45309', fontWeight: '700', lineHeight: '1.4' }}>
+              ⚠️ आपका 1 वर्ष का फ्री ट्रायल समाप्त होने में सिर्फ <strong>{trialInfo.daysRemaining} दिन</strong> बाकी हैं।
+            </div>
+            <button 
+              onClick={() => setShowPayModal(true)}
+              style={{ backgroundColor: '#d97706', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '16px', fontSize: '11px', fontWeight: '800', cursor: 'pointer', whiteSpace: 'nowrap', marginLeft: '8px' }}
+            >
+              रिन्यू करें 👑
+            </button>
+          </div>
+        )}
+
+        {/* EXPIRED BANNER */}
+        {trialInfo.isExpired && !isOwnerPro && (
+          <div style={{ marginTop: '12px', backgroundColor: '#fef2f2', border: '1.5px solid #fecaca', borderRadius: '14px', padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ fontSize: '11.5px', color: '#b91c1c', fontWeight: '700', lineHeight: '1.4' }}>
+              ⛔ आपका 1 वर्ष का फ्री ट्रायल पूरा हो चुका है। जारी रखने के लिए प्रो प्लान लें।
+            </div>
+            <button 
+              onClick={() => setShowPayModal(true)}
+              style={{ backgroundColor: '#ef4444', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '16px', fontSize: '11px', fontWeight: '800', cursor: 'pointer', whiteSpace: 'nowrap', marginLeft: '8px' }}
+            >
+              एक्टिव करें ⚡
+            </button>
+          </div>
+        )}
 
         {/* TAB-INDEPENDENT SEARCH BAR */}
         <div style={{ marginTop: '16px', position: 'relative' }}>
@@ -1437,7 +1488,7 @@ export default function App() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
               <strong style={{ fontSize: '14px', color: '#0f172a' }}>📜 जमा भुगतान इतिहास</strong>
               {selectedRoom.status === 'occupied' && (
-                <button onClick={() => { setPaymentModalRoom(selectedRoom); setEditingPaymentId(null); setPaymentForm({ amount: String(getRoomBakaya(selectedRoom) || ''), mode: 'Cash', date: '2026-09-23', note: '' }); }} style={{ backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '6px 14px', borderRadius: '20px', fontWeight: '700', fontSize: '11px', cursor: 'pointer' }}>
+                <button onClick={() => { setPaymentModalRoom(selectedRoom); setEditingPaymentId(null); setPaymentForm({ amount: String(getRoomBakaya(selectedRoom) || ''), mode: 'Cash', date: new Date().toISOString().split('T')[0], note: '' }); }} style={{ backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '6px 14px', borderRadius: '20px', fontWeight: '700', fontSize: '11px', cursor: 'pointer' }}>
                   + नया जमा
                 </button>
               )}
@@ -1639,12 +1690,12 @@ export default function App() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
                 <h3 style={{ fontSize: '18px', fontWeight: '800', margin: 0, color: '#0f172a' }}>कमरे (Rooms List)</h3>
                 <button onClick={() => { 
-                  if (!isOwnerPro && rooms.length >= FREE_ROOM_LIMIT) {
+                  if (!isOwnerPro && trialInfo.isExpired) {
                     setShowPayModal(true);
                     return;
                   }
                   setEditingRoomId(null); 
-                  setRoomForm({ propName: properties[0]?.name || '', roomNo: '', status: 'occupied', tenant: '', phone: '', dob: '', idNumber: '', pin: '', rent: '', security: '', depositAmount: '', otherCharges: '', otherChargesNote: '', moveInDate: '2026-09-10', initialReading: '' }); 
+                  setRoomForm({ propName: properties[0]?.name || '', roomNo: '', status: 'occupied', tenant: '', phone: '', dob: '', idNumber: '', pin: '', rent: '', security: '', depositAmount: '', otherCharges: '', otherChargesNote: '', moveInDate: new Date().toISOString().split('T')[0], initialReading: '' }); 
                   setShowAddRoom(true); 
                 }} style={{ backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '25px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', boxShadow: '0 4px 10px rgba(2, 132, 199, 0.25)' }}>
                   + नया कमरा
@@ -1705,7 +1756,6 @@ export default function App() {
             <div style={{ padding: '16px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>मेरी प्रॉपर्टीज ({properties.length})</h2>
-                {/* Fixed "+ नई प्रॉपर्टी" बटन: यहाँ से p.id एरर हटाकर सही रीसेट लगाया गया है */}
                 <button 
                   onClick={() => { 
                     setEditingPropId(null); 
@@ -1802,7 +1852,7 @@ export default function App() {
                             विवरण देखें
                           </button>
                           {room.status === 'occupied' && (
-                            <button onClick={() => { setPaymentModalRoom(room); setEditingPaymentId(null); setPaymentForm({ amount: String(bakaya || ''), mode: 'Cash', date: '2026-09-23', note: '' }); }} style={{ flex: 1, backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '8px', borderRadius: '20px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>
+                            <button onClick={() => { setPaymentModalRoom(room); setEditingPaymentId(null); setPaymentForm({ amount: String(bakaya || ''), mode: 'Cash', date: new Date().toISOString().split('T')[0], note: '' }); }} style={{ flex: 1, backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '8px', borderRadius: '20px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>
                               + जमा दर्ज करें
                             </button>
                           )}
@@ -2198,7 +2248,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 4: ADD / EDIT PROPERTY (ROBUST FIX) */}
+      {/* MODAL 4: ADD / EDIT PROPERTY */}
       {showAddProperty && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px', zIndex: 9999 }}>
           <div style={{ backgroundColor: '#fff', width: '100%', maxWidth: '370px', borderRadius: '24px', padding: '22px', maxHeight: '90vh', overflowY: 'auto' }}>
@@ -2361,7 +2411,7 @@ export default function App() {
                 <option value="UPI">UPI</option>
                 <option value="Bank">Bank Transfer</option>
               </select>
-              <input placeholder="विवरण (उदा. सितंबर किराया)" value={paymentForm.note} onChange={e => setPaymentForm({ ...paymentForm, note: e.target.value })} style={{ padding: '10px', border: '1px solid #cbd5e1', borderRadius: '12px' }} />
+              <input placeholder="विवरण (उदा. किराया जमा)" value={paymentForm.note} onChange={e => setPaymentForm({ ...paymentForm, note: e.target.value })} style={{ padding: '10px', border: '1px solid #cbd5e1', borderRadius: '12px' }} />
               <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                 <button type="submit" style={{ flex: 1, backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '12px', borderRadius: '30px', fontWeight: '700' }}>सेव करें</button>
                 <button type="button" onClick={() => setPaymentModalRoom(null)} style={{ flex: 1, border: '1px solid #cbd5e1', background: '#fff', padding: '12px', borderRadius: '30px', fontWeight: '700' }}>रद्द</button>
@@ -2418,7 +2468,9 @@ export default function App() {
             <span style={{ fontSize: '36px' }}>👑</span>
             <h3 style={{ margin: '6px 0 4px', fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>Kiraya Manager Pro Upgrade</h3>
             <p style={{ margin: '0 0 14px', fontSize: '12px', color: '#64748b' }}>
-              आपकी 5-कमरों की Free सीमा पूरी हो चुकी है। असीमित कमरों के लिए प्लान चुनें:
+              {trialInfo.isExpired 
+                ? 'आपका 1 वर्ष का फ्री ट्रायल समाप्त हो चुका है। आगे की सेवाओं के लिए रिन्यू करें:'
+                : '1 वर्ष का फ्री ट्रायल जारी है। आप कभी भी Pro में अपग्रेड कर सकते हैं:'}
             </p>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '14px' }}>
@@ -2435,7 +2487,7 @@ export default function App() {
                 onClick={() => setSelectedPlan('annual')}
                 style={{ border: selectedPlan === 'annual' ? '2px solid #0284c7' : '1px solid #cbd5e1', padding: '12px 6px', borderRadius: '16px', cursor: 'pointer', backgroundColor: selectedPlan === 'annual' ? '#f0f9ff' : '#fff', position: 'relative' }}
               >
-                <span style={{ position: 'absolute', top: '-7px', right: '6px', backgroundColor: '#ef4444', color: '#fff', fontSize: '8px', padding: '2px 6px', borderRadius: '8px', fontWeight: '800' }}>SAVE 35%</span>
+                <span style={{ position: 'absolute', top: '-7px', right: '6px', backgroundColor: '#ef4444', color: '#fff', fontSize: '8px', padding: '2px 6px', borderRadius: '8px', fontWeight: '800' }}>BEST VALUE</span>
                 <div style={{ fontWeight: '800', fontSize: '13px', color: '#0f172a' }}>Pro Annual</div>
                 <div style={{ fontSize: '16px', fontWeight: '900', color: '#0284c7', margin: '4px 0' }}>₹1,499 / वर्ष</div>
                 <div style={{ fontSize: '10px', color: '#64748b' }}>पूरे साल की बचत</div>
