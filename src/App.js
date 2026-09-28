@@ -67,6 +67,7 @@ export default function App() {
     dashboard: '',
     properties: '',
     khata: '',
+    expenses: '',
     report: ''
   });
 
@@ -91,6 +92,18 @@ export default function App() {
   });
   const [properties, setProperties] = useState([]);
   const [rooms, setRooms] = useState([]);
+  
+  // Dainik Kharcha (Expenses) States
+  const [expenses, setExpenses] = useState([]);
+  const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
+  const [expenseForm, setExpenseForm] = useState({
+    title: '',
+    amount: '',
+    category: 'Safai / Sweeper',
+    propName: '',
+    date: new Date().toISOString().split('T')[0],
+    note: ''
+  });
 
   // Session Storage Sync
   useEffect(() => {
@@ -118,6 +131,9 @@ export default function App() {
 
         const roomArr = myData.rooms ? (Array.isArray(myData.rooms) ? myData.rooms : Object.values(myData.rooms)) : [];
         setRooms(roomArr);
+
+        const expArr = myData.expenses ? (Array.isArray(myData.expenses) ? myData.expenses : Object.values(myData.expenses)) : [];
+        setExpenses(expArr);
       }
     });
     return () => unsubscribe();
@@ -135,6 +151,13 @@ export default function App() {
     setProperties(updatedProps);
     if (activeOwnerId) {
       set(ref(db, `kirayaApp/owners/${activeOwnerId}/properties`), updatedProps);
+    }
+  };
+
+  const updateExpensesInDb = (updatedExpenses) => {
+    setExpenses(updatedExpenses);
+    if (activeOwnerId) {
+      set(ref(db, `kirayaApp/owners/${activeOwnerId}/expenses`), updatedExpenses);
     }
   };
 
@@ -305,7 +328,8 @@ export default function App() {
         ifsc: ''
       },
       properties: [],
-      rooms: []
+      rooms: [],
+      expenses: []
     };
 
     set(ref(db, `kirayaApp/owners/${cleanId}`), newOwnerProfile);
@@ -857,6 +881,44 @@ export default function App() {
     alert(`रीडिंग सबमिट हो गई! ${units} यूनिट का ₹${bill} बिल में जुड़ गया।`);
   };
 
+  // Dainik Kharcha Save Handler
+  const handleSaveExpense = (e) => {
+    e.preventDefault();
+    if (!expenseForm.amount || Number(expenseForm.amount) <= 0) {
+      alert('कृपया सही राशि भरें!');
+      return;
+    }
+
+    const newExp = {
+      id: Date.now(),
+      title: expenseForm.title.trim() || expenseForm.category,
+      amount: Number(expenseForm.amount),
+      category: expenseForm.category,
+      propName: expenseForm.propName || (properties[0]?.name || 'Building 1'),
+      date: expenseForm.date,
+      note: expenseForm.note
+    };
+
+    const updated = [newExp, ...expenses];
+    updateExpensesInDb(updated);
+    setShowAddExpenseModal(false);
+    setExpenseForm({
+      title: '',
+      amount: '',
+      category: 'Safai / Sweeper',
+      propName: properties[0]?.name || '',
+      date: new Date().toISOString().split('T')[0],
+      note: ''
+    });
+    alert('दैनिक खर्चा सुरक्षित हो गया!');
+  };
+
+  const handleDeleteExpense = (id) => {
+    if (!window.confirm('क्या आप इस खर्चे की एंट्री को हटाना चाहते हैं?')) return;
+    const updated = expenses.filter(item => item.id !== id);
+    updateExpensesInDb(updated);
+  };
+
   // Submit UTR for Subscription
   const submitSubscriptionUtr = () => {
     if (!subUtr || subUtr.trim().length < 8) {
@@ -893,6 +955,7 @@ export default function App() {
   const totalBakayaAll = rooms.reduce((acc, r) => acc + getRoomBakaya(r), 0);
   const totalJamaAll = rooms.reduce((acc, r) => acc + getPaidTotal(r), 0);
   const totalAdvanceAll = occupiedList.reduce((acc, r) => acc + (Number(r.security || 0) + Number(r.depositAmount || 0)), 0);
+  const totalExpenseAll = expenses.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
 
   // 1. GATEWAY SCREEN
   if (authRole === 'login_choice') {
@@ -975,7 +1038,6 @@ export default function App() {
                   required
                 />
 
-                {/* Direct Mobile Number (No OTP Required) */}
                 <input
                   type="tel"
                   maxLength={10}
@@ -1208,7 +1270,7 @@ export default function App() {
 
   return (
     <div style={{ maxWidth: '450px', margin: '0 auto', minHeight: '100vh', backgroundColor: '#f8fafc', color: '#0f172a', paddingBottom: '90px', fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif" }}>
-      {/* TOP HEADER MATCHING PHOTO */}
+      {/* TOP HEADER */}
       <header className="no-print" style={{ backgroundColor: '#fff', padding: '18px 20px', borderBottom: '1px solid #f1f5f9' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -1638,7 +1700,66 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 4: ADVANCED REPORT WITH 1-ROOM / ALL ROOMS FILTER, DATE RANGE & DOWNLOAD */}
+          {/* TAB: DAINIK KHARCHA (EXPENSES / PETTY CASH) */}
+          {activeTab === 'expenses' && (
+            <div style={{ padding: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>💰 दैनिक खर्चा (Expenses)</h2>
+                  <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                    कुल खर्चा: <strong style={{ color: '#ef4444' }}>₹{totalExpenseAll.toLocaleString()}</strong>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => {
+                    setExpenseForm(prev => ({ ...prev, propName: properties[0]?.name || '' }));
+                    setShowAddExpenseModal(true);
+                  }} 
+                  style={{ backgroundColor: '#ef4444', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '25px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', boxShadow: '0 4px 10px rgba(239, 68, 68, 0.25)' }}
+                >
+                  + नया खर्चा
+                </button>
+              </div>
+
+              {expenses.length === 0 ? (
+                <div style={{ backgroundColor: '#fff', padding: '30px 20px', borderRadius: '24px', textAlign: 'center', color: '#94a3b8', border: '1px solid #f1f5f9' }}>
+                  अभी तक कोई खर्चा दर्ज नहीं किया गया है।
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {expenses
+                    .filter(exp => {
+                      const s = (tabSearches.expenses || '').toLowerCase();
+                      if (!s) return true;
+                      return (exp.title && exp.title.toLowerCase().includes(s)) || (exp.category && exp.category.toLowerCase().includes(s)) || (exp.propName && exp.propName.toLowerCase().includes(s));
+                    })
+                    .map((exp) => (
+                      <div key={exp.id} style={{ backgroundColor: '#fff', padding: '14px 16px', borderRadius: '20px', border: '1px solid #f1f5f9', boxShadow: '0 4px 15px rgba(0,0,0,0.02)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <div style={{ fontWeight: '800', fontSize: '15px', color: '#0f172a' }}>{exp.title}</div>
+                          <div style={{ fontSize: '12px', color: '#64748b', marginTop: '3px' }}>
+                            🏷️ {exp.category} · 🏢 {exp.propName}
+                          </div>
+                          <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                            📅 {exp.date} {exp.note && `• ${exp.note}`}
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ fontSize: '16px', fontWeight: '900', color: '#ef4444' }}>-₹{exp.amount}</span>
+                          <button 
+                            onClick={() => handleDeleteExpense(exp.id)} 
+                            style={{ border: 'none', background: '#fee2e2', color: '#ef4444', padding: '6px 8px', borderRadius: '8px', cursor: 'pointer', fontSize: '11px' }}
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {activeTab === 'report' && (
             <div style={{ padding: '16px' }}>
               <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
@@ -1845,6 +1966,79 @@ export default function App() {
         </div>
       )}
 
+      {/* MODAL: DAINIK KHARCHA ENTRY */}
+      {showAddExpenseModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px', zIndex: 9999 }}>
+          <div style={{ backgroundColor: '#fff', width: '100%', maxWidth: '360px', borderRadius: '24px', padding: '22px' }}>
+            <h3 style={{ margin: '0 0 14px 0', fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>+ नया खर्चा दर्ज करें</h3>
+            <form onSubmit={handleSaveExpense} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              
+              <select 
+                value={expenseForm.category} 
+                onChange={e => setExpenseForm({ ...expenseForm, category: e.target.value })}
+                style={{ padding: '10px', border: '1px solid #cbd5e1', borderRadius: '12px', outline: 'none' }}
+              >
+                <option value="Safai / Sweeper">🧹 Safai / Sweeper</option>
+                <option value="Plumbing Repair">🔧 Plumbing / Nal Repair</option>
+                <option value="Electrician / Bulb">💡 Electrician / Bulb</option>
+                <option value="Water Tanker">💧 Paani ka Tanker</option>
+                <option value="Building Repair">🧱 Building Repair</option>
+                <option value="Anya / Misc">📝 Anya Kharcha</option>
+              </select>
+
+              <input 
+                placeholder="विवरण (जैसे: 2 LED Bulb, Sweeper Salary)" 
+                value={expenseForm.title} 
+                onChange={e => setExpenseForm({ ...expenseForm, title: e.target.value })} 
+                style={{ padding: '10px', border: '1px solid #cbd5e1', borderRadius: '12px', outline: 'none' }} 
+                required 
+              />
+
+              <input 
+                type="number" 
+                placeholder="राशि (₹) *" 
+                value={expenseForm.amount} 
+                onChange={e => setExpenseForm({ ...expenseForm, amount: e.target.value })} 
+                style={{ padding: '10px', border: '2px solid #ef4444', borderRadius: '12px', fontSize: '16px', fontWeight: '800', outline: 'none' }} 
+                required 
+              />
+
+              <select 
+                value={expenseForm.propName} 
+                onChange={e => setExpenseForm({ ...expenseForm, propName: e.target.value })} 
+                style={{ padding: '10px', border: '1px solid #cbd5e1', borderRadius: '12px', outline: 'none' }}
+              >
+                {properties.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+              </select>
+
+              <input 
+                type="date" 
+                value={expenseForm.date} 
+                onChange={e => setExpenseForm({ ...expenseForm, date: e.target.value })} 
+                style={{ padding: '10px', border: '1px solid #cbd5e1', borderRadius: '12px', outline: 'none' }} 
+                required 
+              />
+
+              <input 
+                placeholder="अतिरिक्त नोट (वैकल्पिक)" 
+                value={expenseForm.note} 
+                onChange={e => setExpenseForm({ ...expenseForm, note: e.target.value })} 
+                style={{ padding: '10px', border: '1px solid #cbd5e1', borderRadius: '12px', outline: 'none' }} 
+              />
+
+              <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                <button type="submit" style={{ flex: 1, backgroundColor: '#ef4444', color: '#fff', border: 'none', padding: '12px', borderRadius: '30px', fontWeight: '700', cursor: 'pointer' }}>
+                  सुरक्षित करें
+                </button>
+                <button type="button" onClick={() => setShowAddExpenseModal(false)} style={{ flex: 1, border: '1px solid #cbd5e1', background: '#fff', padding: '12px', borderRadius: '30px', fontWeight: '700', cursor: 'pointer' }}>
+                  रद्द
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {paymentModalRoom && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px', zIndex: 9999 }}>
           <div style={{ backgroundColor: '#fff', width: '100%', maxWidth: '360px', borderRadius: '24px', padding: '20px' }}>
@@ -1981,12 +2175,13 @@ export default function App() {
         </div>
       )}
 
-      {/* 4 ORIGINAL BUTTONS FLOATING BOTTOM NAVIGATION */}
-      <nav className="no-print" style={{ position: 'fixed', bottom: 12, left: '50%', transform: 'translateX(-50%)', width: '92%', maxWidth: '420px', height: '62px', backgroundColor: '#fff', borderRadius: '35px', display: 'flex', justifyContent: 'space-around', alignItems: 'center', zIndex: 1000, boxShadow: '0 8px 30px rgba(2, 132, 199, 0.12)', border: '1px solid #e0f2fe', padding: '0 10px' }}>
+      {/* 5 FLOATING BOTTOM NAVIGATION BUTTONS */}
+      <nav className="no-print" style={{ position: 'fixed', bottom: 12, left: '50%', transform: 'translateX(-50%)', width: '92%', maxWidth: '420px', height: '62px', backgroundColor: '#fff', borderRadius: '35px', display: 'flex', justifyContent: 'space-around', alignItems: 'center', zIndex: 1000, boxShadow: '0 8px 30px rgba(2, 132, 199, 0.12)', border: '1px solid #e0f2fe', padding: '0 8px' }}>
         {[
           { id: 'dashboard', label: 'डैशबोर्ड', icon: '田' },
           { id: 'properties', label: 'प्रॉपर्टी', icon: '🏢' },
           { id: 'khata', label: 'खाता बही', icon: '📖' },
+          { id: 'expenses', label: 'खर्चा', icon: '💸' },
           { id: 'report', label: 'रिपोर्ट', icon: '📄' }
         ].map(item => {
           const isActive = activeTab === item.id;
@@ -2001,14 +2196,14 @@ export default function App() {
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: isActive ? '#0284c7' : '#64748b',
+                color: isActive ? (item.id === 'expenses' ? '#ef4444' : '#0284c7') : '#64748b',
                 cursor: 'pointer',
                 flex: 1,
                 padding: '4px 0'
               }}
             >
-              <span style={{ fontSize: '18px', color: isActive ? '#0284c7' : '#64748b' }}>{item.icon}</span>
-              <span style={{ fontSize: '11px', fontWeight: isActive ? '800' : '600', marginTop: '2px' }}>{item.label}</span>
+              <span style={{ fontSize: '18px', color: isActive ? (item.id === 'expenses' ? '#ef4444' : '#0284c7') : '#64748b' }}>{item.icon}</span>
+              <span style={{ fontSize: '10.5px', fontWeight: isActive ? '800' : '600', marginTop: '2px' }}>{item.label}</span>
             </button>
           );
         })}
