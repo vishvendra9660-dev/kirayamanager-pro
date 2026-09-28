@@ -93,7 +93,7 @@ export default function App() {
   const [properties, setProperties] = useState([]);
   const [rooms, setRooms] = useState([]);
   
-  // Dainik Kharcha (Expenses) States
+  // Dainik Kharcha (Expenses) States with Room-wise & Category Support
   const [expenses, setExpenses] = useState([]);
   const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
   const [expenseForm, setExpenseForm] = useState({
@@ -101,6 +101,8 @@ export default function App() {
     amount: '',
     category: 'Safai / Sweeper',
     propName: '',
+    scope: 'common', // 'common' ya 'room'
+    roomId: 'common',
     date: new Date().toISOString().split('T')[0],
     note: ''
   });
@@ -603,7 +605,6 @@ export default function App() {
   const handleSaveRoom = (e) => {
     e.preventDefault();
 
-    // 5 Rooms Free Limit Check
     const currentOwner = allOwnersData[activeOwnerId] || {};
     const isPro = currentOwner.isPro || false;
     if (!editingRoomId && !isPro && rooms.length >= FREE_ROOM_LIMIT) {
@@ -881,7 +882,7 @@ export default function App() {
     alert(`रीडिंग सबमिट हो गई! ${units} यूनिट का ₹${bill} बिल में जुड़ गया।`);
   };
 
-  // Dainik Kharcha Save Handler
+  // Dainik Kharcha (Expenses) Save Handler
   const handleSaveExpense = (e) => {
     e.preventDefault();
     if (!expenseForm.amount || Number(expenseForm.amount) <= 0) {
@@ -889,12 +890,19 @@ export default function App() {
       return;
     }
 
+    const selectedProp = expenseForm.propName || (properties[0]?.name || 'Building 1');
+    const roomObj = rooms.find(r => r.id === expenseForm.roomId);
+    const roomLabel = expenseForm.scope === 'room' && roomObj ? roomObj.roomNo : 'कॉमन (Common Building)';
+
     const newExp = {
       id: Date.now(),
       title: expenseForm.title.trim() || expenseForm.category,
       amount: Number(expenseForm.amount),
       category: expenseForm.category,
-      propName: expenseForm.propName || (properties[0]?.name || 'Building 1'),
+      propName: selectedProp,
+      scope: expenseForm.scope,
+      roomId: expenseForm.scope === 'room' ? expenseForm.roomId : null,
+      roomNo: roomLabel,
       date: expenseForm.date,
       note: expenseForm.note
     };
@@ -907,10 +915,12 @@ export default function App() {
       amount: '',
       category: 'Safai / Sweeper',
       propName: properties[0]?.name || '',
+      scope: 'common',
+      roomId: 'common',
       date: new Date().toISOString().split('T')[0],
       note: ''
     });
-    alert('दैनिक खर्चा सुरक्षित हो गया!');
+    alert('खर्चा सुरक्षित हो गया!');
   };
 
   const handleDeleteExpense = (id) => {
@@ -951,11 +961,18 @@ export default function App() {
   const ownerUpiUri = `upi://pay?pa=${ADMIN_UPI}&pn=KirayaManagerPro&am=${planAmount}&cu=INR&tn=ProUpgrade_${activeOwnerId}`;
   const ownerQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(ownerUpiUri)}`;
 
-  const occupiedList = rooms.filter(r => r.status === 'occupied');
-  const totalBakayaAll = rooms.reduce((acc, r) => acc + getRoomBakaya(r), 0);
-  const totalJamaAll = rooms.reduce((acc, r) => acc + getPaidTotal(r), 0);
-  const totalAdvanceAll = occupiedList.reduce((acc, r) => acc + (Number(r.security || 0) + Number(r.depositAmount || 0)), 0);
-  const totalExpenseAll = expenses.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+  // Filtered calculation for Dashboard / Profit & Loss
+  const visibleRooms = rooms.filter(r => propertyFilter === 'all' || r.propName === propertyFilter);
+  const occupiedList = visibleRooms.filter(r => r.status === 'occupied');
+  const totalBakayaFiltered = visibleRooms.reduce((acc, r) => acc + getRoomBakaya(r), 0);
+  const totalJamaFiltered = visibleRooms.reduce((acc, r) => acc + getPaidTotal(r), 0);
+  const totalAdvanceFiltered = occupiedList.reduce((acc, r) => acc + (Number(r.security || 0) + Number(r.depositAmount || 0)), 0);
+
+  const visibleExpenses = expenses.filter(exp => propertyFilter === 'all' || exp.propName === propertyFilter);
+  const totalExpenseFiltered = visibleExpenses.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+  
+  // Real Net Profit / Loss calculation (Rent Collected - Total Expenses)
+  const netProfitLoss = totalJamaFiltered - totalExpenseFiltered;
 
   // 1. GATEWAY SCREEN
   if (authRole === 'login_choice') {
@@ -1519,27 +1536,76 @@ export default function App() {
         <>
           {activeTab === 'dashboard' && (
             <div style={{ padding: '16px' }}>
+              
+              {/* PROPERTY SELECTION QUICK SWITCHER */}
+              <div style={{ marginBottom: '14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '12px', fontWeight: '700', color: '#64748b' }}>🏢 बिल्डिंग चुनें:</span>
+                <select 
+                  value={propertyFilter} 
+                  onChange={e => setPropertyFilter(e.target.value)}
+                  style={{ padding: '6px 12px', borderRadius: '20px', border: '1.5px solid #0284c7', fontSize: '12px', fontWeight: '700', outline: 'none', background: '#fff', color: '#0284c7' }}
+                >
+                  <option value="all">सभी प्रॉपर्टीज (All)</option>
+                  {properties.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                </select>
+              </div>
+
+              {/* LIVE PROFIT & LOSS CARD (REVENUE - EXPENSES) */}
+              <div style={{ backgroundColor: '#fff', borderRadius: '24px', padding: '18px 20px', border: '1px solid #e2e8f0', boxShadow: '0 8px 25px rgba(0,0,0,0.05)', marginBottom: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                  <span style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>📊 लाभ व हानि (P&L Summary)</span>
+                  <span style={{ fontSize: '11px', color: '#64748b', fontWeight: '600' }}>
+                    {propertyFilter === 'all' ? 'समस्त संपत्तियां' : propertyFilter}
+                  </span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' }}>
+                  <div style={{ backgroundColor: '#f0fdf4', padding: '12px', borderRadius: '16px', border: '1px solid #bbf7d0' }}>
+                    <div style={{ fontSize: '11px', color: '#166534', fontWeight: '700' }}>कुल किराया प्राप्त (Income)</div>
+                    <div style={{ fontSize: '18px', fontWeight: '900', color: '#15803d', marginTop: '2px' }}>
+                      ₹{totalJamaFiltered.toLocaleString()}
+                    </div>
+                  </div>
+                  <div style={{ backgroundColor: '#fef2f2', padding: '12px', borderRadius: '16px', border: '1px solid #fecaca' }}>
+                    <div style={{ fontSize: '11px', color: '#991b1b', fontWeight: '700' }}>कुल बिल्डिंग खर्चा (Expense)</div>
+                    <div style={{ fontSize: '18px', fontWeight: '900', color: '#b91c1c', marginTop: '2px' }}>
+                      ₹{totalExpenseFiltered.toLocaleString()}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '10px', borderTop: '1px dashed #cbd5e1' }}>
+                  <div style={{ fontSize: '13px', fontWeight: '800', color: '#334155' }}>
+                    शुद्ध बचत / लाभ (Net Profit):
+                  </div>
+                  <div style={{ fontSize: '20px', fontWeight: '900', color: netProfitLoss >= 0 ? '#10b981' : '#ef4444' }}>
+                    {netProfitLoss >= 0 ? `+ ₹${netProfitLoss.toLocaleString()}` : `- ₹${Math.abs(netProfitLoss).toLocaleString()}`}
+                  </div>
+                </div>
+              </div>
+
+              {/* STATS TILES */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '18px' }}>
                 <div style={{ backgroundColor: '#fff', padding: '16px', borderRadius: '20px', border: '1px solid #f1f5f9', boxShadow: '0 4px 15px rgba(0,0,0,0.02)' }}>
                   <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>कमरे (भरे/खाली)</div>
-                  <div style={{ fontSize: '22px', fontWeight: '800', color: '#0f172a', marginTop: '4px' }}>{occupiedList.length} / {rooms.length - occupiedList.length}</div>
+                  <div style={{ fontSize: '22px', fontWeight: '800', color: '#0f172a', marginTop: '4px' }}>{occupiedList.length} / {visibleRooms.length - occupiedList.length}</div>
                 </div>
                 <div style={{ backgroundColor: '#fff', padding: '16px', borderRadius: '20px', border: '1px solid #f1f5f9', boxShadow: '0 4px 15px rgba(0,0,0,0.02)' }}>
                   <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>कुल एडवांस</div>
-                  <div style={{ fontSize: '22px', fontWeight: '800', color: '#0284c7', marginTop: '4px' }}>₹{totalAdvanceAll.toLocaleString()}</div>
+                  <div style={{ fontSize: '22px', fontWeight: '800', color: '#0284c7', marginTop: '4px' }}>₹{totalAdvanceFiltered.toLocaleString()}</div>
                 </div>
                 <div style={{ backgroundColor: '#fff', padding: '16px', borderRadius: '20px', border: '1px solid #f1f5f9', boxShadow: '0 4px 15px rgba(0,0,0,0.02)' }}>
-                  <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>कुल जमा</div>
-                  <div style={{ fontSize: '22px', fontWeight: '800', color: '#10b981', marginTop: '4px' }}>₹{totalJamaAll.toLocaleString()}</div>
+                  <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>कुल जमा किराया</div>
+                  <div style={{ fontSize: '22px', fontWeight: '800', color: '#10b981', marginTop: '4px' }}>₹{totalJamaFiltered.toLocaleString()}</div>
                 </div>
                 <div style={{ backgroundColor: '#fff', padding: '16px', borderRadius: '20px', border: '1px solid #f1f5f9', boxShadow: '0 4px 15px rgba(0,0,0,0.02)' }}>
-                  <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>कुल बाकी</div>
-                  <div style={{ fontSize: '22px', fontWeight: '800', color: '#0284c7', marginTop: '4px' }}>₹{totalBakayaAll.toLocaleString()}</div>
+                  <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>कुल बाकी बकाया</div>
+                  <div style={{ fontSize: '22px', fontWeight: '800', color: '#0284c7', marginTop: '4px' }}>₹{totalBakayaFiltered.toLocaleString()}</div>
                 </div>
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-                <h3 style={{ fontSize: '18px', fontWeight: '800', margin: 0, color: '#0f172a' }}>कमरे (Properties)</h3>
+                <h3 style={{ fontSize: '18px', fontWeight: '800', margin: 0, color: '#0f172a' }}>कमरे (Rooms List)</h3>
                 <button onClick={() => { 
                   if (!isOwnerPro && rooms.length >= FREE_ROOM_LIMIT) {
                     setShowPayModal(true);
@@ -1554,8 +1620,7 @@ export default function App() {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                {rooms
-                  .filter(r => propertyFilter === 'all' || r.propName === propertyFilter)
+                {visibleRooms
                   .filter(r => {
                     const s = (tabSearches.dashboard || '').toLowerCase();
                     if (!s) return true;
@@ -1622,6 +1687,9 @@ export default function App() {
                   })
                   .map(p => {
                     const propRooms = rooms.filter(r => r.propName === p.name);
+                    const propExp = expenses.filter(e => e.propName === p.name).reduce((sum, x) => sum + (Number(x.amount) || 0), 0);
+                    const propIncome = propRooms.reduce((sum, r) => sum + getPaidTotal(r), 0);
+                    
                     return (
                       <div key={p.id} style={{ backgroundColor: '#fff', borderRadius: '24px', overflow: 'hidden', border: '1px solid #f1f5f9', boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}>
                         <img src={p.photo || 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=500&q=60'} alt={p.name} style={{ width: '100%', height: '130px', objectFit: 'cover' }} />
@@ -1631,7 +1699,13 @@ export default function App() {
                             <button onClick={() => { setEditingPropId(p.id); setPropForm({ ...p }); setShowAddProperty(true); }} style={{ backgroundColor: '#f0f9ff', color: '#0284c7', border: '1px solid #bae6fd', padding: '4px 10px', borderRadius: '15px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}>✏️ Edit</button>
                           </div>
                           <div style={{ fontSize: '13px', color: '#64748b', margin: '4px 0' }}>📍 {p.address} ({p.pincode})</div>
-                          <div style={{ fontSize: '12px', color: '#64748b', margin: '4px 0' }}>👤 देखरेख: {p.caretakerName} ({p.caretakerPhone})</div>
+                          <div style={{ fontSize: '12px', color: '#64748b', margin: '4px 0' }}>👤 देखरेख (Caretaker): {p.caretakerName} ({p.caretakerPhone})</div>
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', backgroundColor: '#f8fafc', padding: '8px 12px', borderRadius: '12px', marginTop: '8px' }}>
+                            <span>किराया मिला: <strong style={{ color: '#10b981' }}>₹{propIncome}</strong></span>
+                            <span>खर्चा: <strong style={{ color: '#ef4444' }}>₹{propExp}</strong></span>
+                            <span>बचत: <strong style={{ color: (propIncome - propExp) >= 0 ? '#0284c7' : '#ef4444' }}>₹{propIncome - propExp}</strong></span>
+                          </div>
 
                           <button
                             onClick={() => {
@@ -1654,7 +1728,7 @@ export default function App() {
             <div style={{ padding: '16px' }}>
               <h2 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>📖 खाता बही (Ledger)</h2>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {rooms
+                {visibleRooms
                   .filter(r => {
                     const s = (tabSearches.khata || '').toLowerCase();
                     if (!s) return true;
@@ -1700,19 +1774,24 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB: DAINIK KHARCHA (EXPENSES / PETTY CASH) */}
+          {/* TAB: DAINIK KHARCHA (EXPENSES WITH ROOM & COMMON BREAKDOWN) */}
           {activeTab === 'expenses' && (
             <div style={{ padding: '16px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <div>
                   <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>💰 दैनिक खर्चा (Expenses)</h2>
                   <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
-                    कुल खर्चा: <strong style={{ color: '#ef4444' }}>₹{totalExpenseAll.toLocaleString()}</strong>
+                    कुल खर्चा: <strong style={{ color: '#ef4444' }}>₹{totalExpenseFiltered.toLocaleString()}</strong>
                   </div>
                 </div>
                 <button 
                   onClick={() => {
-                    setExpenseForm(prev => ({ ...prev, propName: properties[0]?.name || '' }));
+                    setExpenseForm(prev => ({ 
+                      ...prev, 
+                      propName: properties[0]?.name || '',
+                      scope: 'common',
+                      roomId: 'common'
+                    }));
                     setShowAddExpenseModal(true);
                   }} 
                   style={{ backgroundColor: '#ef4444', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '25px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', boxShadow: '0 4px 10px rgba(239, 68, 68, 0.25)' }}
@@ -1721,17 +1800,17 @@ export default function App() {
                 </button>
               </div>
 
-              {expenses.length === 0 ? (
+              {visibleExpenses.length === 0 ? (
                 <div style={{ backgroundColor: '#fff', padding: '30px 20px', borderRadius: '24px', textAlign: 'center', color: '#94a3b8', border: '1px solid #f1f5f9' }}>
                   अभी तक कोई खर्चा दर्ज नहीं किया गया है।
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {expenses
+                  {visibleExpenses
                     .filter(exp => {
                       const s = (tabSearches.expenses || '').toLowerCase();
                       if (!s) return true;
-                      return (exp.title && exp.title.toLowerCase().includes(s)) || (exp.category && exp.category.toLowerCase().includes(s)) || (exp.propName && exp.propName.toLowerCase().includes(s));
+                      return (exp.title && exp.title.toLowerCase().includes(s)) || (exp.category && exp.category.toLowerCase().includes(s)) || (exp.propName && exp.propName.toLowerCase().includes(s)) || (exp.roomNo && exp.roomNo.toLowerCase().includes(s));
                     })
                     .map((exp) => (
                       <div key={exp.id} style={{ backgroundColor: '#fff', padding: '14px 16px', borderRadius: '20px', border: '1px solid #f1f5f9', boxShadow: '0 4px 15px rgba(0,0,0,0.02)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1739,6 +1818,9 @@ export default function App() {
                           <div style={{ fontWeight: '800', fontSize: '15px', color: '#0f172a' }}>{exp.title}</div>
                           <div style={{ fontSize: '12px', color: '#64748b', marginTop: '3px' }}>
                             🏷️ {exp.category} · 🏢 {exp.propName}
+                          </div>
+                          <div style={{ fontSize: '11px', color: '#0284c7', fontWeight: '700', marginTop: '2px' }}>
+                            🚪 {exp.scope === 'room' ? `कमरा: ${exp.roomNo}` : '🏢 कॉमन बिल्डिंग खर्चा (Common)'}
                           </div>
                           <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
                             📅 {exp.date} {exp.note && `• ${exp.note}`}
@@ -1966,28 +2048,82 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL: DAINIK KHARCHA ENTRY */}
+      {/* MODAL: DAINIK KHARCHA ENTRY (WITH ROOM & COMMON CHOICES) */}
       {showAddExpenseModal && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px', zIndex: 9999 }}>
-          <div style={{ backgroundColor: '#fff', width: '100%', maxWidth: '360px', borderRadius: '24px', padding: '22px' }}>
+          <div style={{ backgroundColor: '#fff', width: '100%', maxWidth: '370px', borderRadius: '24px', padding: '22px', maxHeight: '90vh', overflowY: 'auto' }}>
             <h3 style={{ margin: '0 0 14px 0', fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>+ नया खर्चा दर्ज करें</h3>
             <form onSubmit={handleSaveExpense} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               
+              {/* Category Dropdown (With Bijli Bill & Dekhrekh / Caretaker) */}
+              <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>खर्चे का प्रकार (Category):</label>
               <select 
                 value={expenseForm.category} 
                 onChange={e => setExpenseForm({ ...expenseForm, category: e.target.value })}
                 style={{ padding: '10px', border: '1px solid #cbd5e1', borderRadius: '12px', outline: 'none' }}
               >
-                <option value="Safai / Sweeper">🧹 Safai / Sweeper</option>
-                <option value="Plumbing Repair">🔧 Plumbing / Nal Repair</option>
-                <option value="Electrician / Bulb">💡 Electrician / Bulb</option>
-                <option value="Water Tanker">💧 Paani ka Tanker</option>
-                <option value="Building Repair">🧱 Building Repair</option>
-                <option value="Anya / Misc">📝 Anya Kharcha</option>
+                <option value="Bijli Bill (Main / Room)">⚡ बिजली बिल (Electricity Bill)</option>
+                <option value="Dekhrekh / Caretaker Salary">👤 देखरेख / Caretaker सैलरी</option>
+                <option value="Safai / Sweeper">🧹 सफाई / Sweeper</option>
+                <option value="Plumbing Repair">🔧 प्लंबर / नल रिपेयर</option>
+                <option value="Electrician / Bulb">💡 इलेक्ट्रीशियन / बल्ब</option>
+                <option value="Water Tanker">💧 पानी का टैंकर</option>
+                <option value="Building Repair">🧱 बिल्डिंग मरम्मत</option>
+                <option value="Anya / Misc">📝 अन्य विविध खर्चा</option>
               </select>
 
+              {/* Property Selection */}
+              <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>प्रॉपर्टी (Building):</label>
+              <select 
+                value={expenseForm.propName || (properties[0]?.name || '')} 
+                onChange={e => setExpenseForm({ ...expenseForm, propName: e.target.value, roomId: 'common' })} 
+                style={{ padding: '10px', border: '1px solid #cbd5e1', borderRadius: '12px', outline: 'none' }}
+              >
+                {properties.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+              </select>
+
+              {/* Scope Selection: Common or Specific Room */}
+              <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>खर्चा कहाँ हुआ? (Scope):</label>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setExpenseForm({ ...expenseForm, scope: 'common', roomId: 'common' })}
+                  style={{ flex: 1, padding: '8px', borderRadius: '12px', border: '1.5px solid', borderColor: expenseForm.scope === 'common' ? '#0284c7' : '#cbd5e1', background: expenseForm.scope === 'common' ? '#f0f9ff' : '#fff', color: expenseForm.scope === 'common' ? '#0284c7' : '#64748b', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}
+                >
+                  🏢 पूरी बिल्डिंग (Common)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExpenseForm({ ...expenseForm, scope: 'room' })}
+                  style={{ flex: 1, padding: '8px', borderRadius: '12px', border: '1.5px solid', borderColor: expenseForm.scope === 'room' ? '#0284c7' : '#cbd5e1', background: expenseForm.scope === 'room' ? '#f0f9ff' : '#fff', color: expenseForm.scope === 'room' ? '#0284c7' : '#64748b', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}
+                >
+                  🚪 विशेष कमरा (Room)
+                </button>
+              </div>
+
+              {/* If Specific Room selected, choose room */}
+              {expenseForm.scope === 'room' && (
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>कमरा चुनें:</label>
+                  <select 
+                    value={expenseForm.roomId} 
+                    onChange={e => setExpenseForm({ ...expenseForm, roomId: e.target.value })}
+                    style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '12px', outline: 'none', marginTop: '4px' }}
+                    required
+                  >
+                    <option value="">कमरा चुनें...</option>
+                    {rooms
+                      .filter(r => r.propName === (expenseForm.propName || properties[0]?.name))
+                      .map(r => (
+                        <option key={r.id} value={r.id}>{r.roomNo} ({r.tenant || 'खाली'})</option>
+                      ))
+                    }
+                  </select>
+                </div>
+              )}
+
               <input 
-                placeholder="विवरण (जैसे: 2 LED Bulb, Sweeper Salary)" 
+                placeholder="खर्चे का शीर्षक (उदा. मुख्य मीटर बिल, केयरटेकर वेतन)" 
                 value={expenseForm.title} 
                 onChange={e => setExpenseForm({ ...expenseForm, title: e.target.value })} 
                 style={{ padding: '10px', border: '1px solid #cbd5e1', borderRadius: '12px', outline: 'none' }} 
@@ -1996,20 +2132,12 @@ export default function App() {
 
               <input 
                 type="number" 
-                placeholder="राशि (₹) *" 
+                placeholder="खर्चा राशि (₹) *" 
                 value={expenseForm.amount} 
                 onChange={e => setExpenseForm({ ...expenseForm, amount: e.target.value })} 
                 style={{ padding: '10px', border: '2px solid #ef4444', borderRadius: '12px', fontSize: '16px', fontWeight: '800', outline: 'none' }} 
                 required 
               />
-
-              <select 
-                value={expenseForm.propName} 
-                onChange={e => setExpenseForm({ ...expenseForm, propName: e.target.value })} 
-                style={{ padding: '10px', border: '1px solid #cbd5e1', borderRadius: '12px', outline: 'none' }}
-              >
-                {properties.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
-              </select>
 
               <input 
                 type="date" 
