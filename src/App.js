@@ -18,6 +18,8 @@ const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
 const ADMIN_UPI = "vs.kumar4@ybl";
+const SUPPORT_PHONE = "9876543210";
+const SUPPORT_EMAIL = "support@kirayamanager.pro";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -40,6 +42,20 @@ export default function App() {
   });
 
   const [allOwnersData, setAllOwnersData] = useState({});
+
+  // Drawer, Contact & Owner Profile Edit Modals
+  const [showDrawerMenu, setShowDrawerMenu] = useState(false);
+  const [showContactModal, setShowContactModal] = useState(false);
+  const [showEditProfileModal, setShowEditProfileModal] = useState(false);
+
+  // Owner Profile Edit Form State
+  const [profileForm, setProfileForm] = useState({
+    name: '',
+    phone: '',
+    upiId: '',
+    accNo: '',
+    ifsc: ''
+  });
 
   // Subscription Modal State
   const [showPayModal, setShowPayModal] = useState(false);
@@ -398,6 +414,51 @@ export default function App() {
     setShowChangeAdminPassModal(false);
   };
 
+  // OPEN & SAVE OWNER PROFILE DETAILS
+  const openEditOwnerProfile = () => {
+    const currentOwner = allOwnersData[activeOwnerId] || {};
+    const creds = currentOwner.credentials || {};
+    const pConf = currentOwner.payConfig || {};
+
+    setProfileForm({
+      name: creds.name || pConf.accHolder || '',
+      phone: creds.phone || '',
+      upiId: pConf.upiId || '',
+      accNo: pConf.accNo || '',
+      ifsc: pConf.ifsc || ''
+    });
+    setShowDrawerMenu(false);
+    setShowEditProfileModal(true);
+  };
+
+  const handleSaveOwnerProfile = (e) => {
+    e.preventDefault();
+    const cleanPhone = profileForm.phone.replace(/\D/g, '');
+    if (cleanPhone.length !== 10) {
+      alert('कृपया सही 10-अंकों का मोबाइल नंबर भरें!');
+      return;
+    }
+
+    const updatedPayConfig = {
+      ...payConfig,
+      accHolder: profileForm.name.trim(),
+      upiId: profileForm.upiId.trim(),
+      accNo: profileForm.accNo.trim(),
+      ifsc: profileForm.ifsc.trim()
+    };
+
+    setPayConfig(updatedPayConfig);
+
+    if (activeOwnerId) {
+      set(ref(db, `kirayaApp/owners/${activeOwnerId}/credentials/name`), profileForm.name.trim());
+      set(ref(db, `kirayaApp/owners/${activeOwnerId}/credentials/phone`), cleanPhone);
+      set(ref(db, `kirayaApp/owners/${activeOwnerId}/payConfig`), updatedPayConfig);
+    }
+
+    alert('आपकी प्रोफ़ाइल व भुगतान विवरण सफलतापूर्वक अपडेट हो गए!');
+    setShowEditProfileModal(false);
+  };
+
   const handleTenantLogin = (e) => {
     e.preventDefault();
     const phoneInput = tenantLoginForm.phone.trim().replace(/\D/g, '');
@@ -440,6 +501,7 @@ export default function App() {
     setLoggedInTenantRoomId(null);
     setActiveOwnerId(null);
     setSelectedRoomId(null);
+    setShowDrawerMenu(false);
     localStorage.removeItem('km_authRole');
     localStorage.removeItem('km_tenantRoomId');
     localStorage.removeItem('km_activeOwnerId');
@@ -1325,13 +1387,19 @@ export default function App() {
   const selectedRoom = rooms.find(r => r.id === selectedRoomId);
 
   return (
-    <div style={{ maxWidth: '450px', margin: '0 auto', minHeight: '100vh', backgroundColor: '#f8fafc', color: '#0f172a', paddingBottom: '90px', fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif" }}>
+    <div style={{ maxWidth: '450px', margin: '0 auto', minHeight: '100vh', backgroundColor: '#f8fafc', color: '#0f172a', paddingBottom: '90px', fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif", position: 'relative' }}>
       
       {/* TOP HEADER */}
       <header className="no-print" style={{ backgroundColor: '#fff', padding: '18px 20px', borderBottom: '1px solid #f1f5f9' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <span style={{ fontSize: '22px', color: '#0284c7', cursor: 'pointer' }}>☰</span>
+            <span 
+              onClick={() => setShowDrawerMenu(true)}
+              style={{ fontSize: '24px', color: '#0284c7', cursor: 'pointer', padding: '4px', userSelect: 'none' }}
+              title="मेनू खोलें"
+            >
+              ☰
+            </span>
             <div>
               <div style={{ fontSize: '20px', fontWeight: '800', color: '#0284c7', lineHeight: '1.2' }}>{payConfig.accHolder || 'Vishvendra Kumar'}</div>
               <div style={{ fontSize: '12px', color: '#64748b' }}>
@@ -1402,6 +1470,100 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      {/* LEFT SIDEBAR SLIDE DRAWER MENU (☰) */}
+      {showDrawerMenu && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 99999, display: 'flex' }}>
+          <div style={{ width: '280px', maxWidth: '80%', backgroundColor: '#fff', height: '100%', display: 'flex', flexDirection: 'column', boxShadow: '4px 0 25px rgba(0,0,0,0.15)', animation: 'slideIn 0.25s ease' }}>
+            
+            {/* Drawer Header */}
+            <div style={{ padding: '22px 20px', borderBottom: '1px solid #f1f5f9', backgroundColor: '#f0f9ff' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '24px' }}>🏢</span>
+                <span onClick={() => setShowDrawerMenu(false)} style={{ fontSize: '20px', fontWeight: 'bold', cursor: 'pointer', color: '#64748b' }}>✕</span>
+              </div>
+              <div style={{ fontSize: '17px', fontWeight: '800', color: '#0f172a', marginTop: '10px' }}>{payConfig.accHolder || 'Vishvendra Kumar'}</div>
+              <div style={{ fontSize: '12px', color: '#0284c7', fontWeight: '600', marginTop: '2px' }}>Kiraya Manager Pro</div>
+            </div>
+
+            {/* Drawer Menu Links */}
+            <div style={{ display: 'flex', flexDirection: 'column', padding: '14px 10px', gap: '4px', flex: 1, overflowY: 'auto' }}>
+              
+              {/* NAYA FEATURE: EDIT OWNER DETAILS */}
+              <button 
+                onClick={openEditOwnerProfile}
+                style={{ display: 'flex', alignItems: 'center', gap: '14px', width: '100%', padding: '12px 14px', border: 'none', background: '#f8fafc', borderRadius: '14px', fontSize: '14px', fontWeight: '700', color: '#0284c7', cursor: 'pointer', textAlign: 'left' }}
+              >
+                <span style={{ fontSize: '18px' }}>👤</span>
+                <span>मेरी प्रोफ़ाइल / विवरण बदलें</span>
+              </button>
+
+              <button 
+                onClick={() => { setShowDrawerMenu(false); setShowPayModal(true); }}
+                style={{ display: 'flex', alignItems: 'center', gap: '14px', width: '100%', padding: '12px 14px', border: 'none', background: 'transparent', borderRadius: '14px', fontSize: '14px', fontWeight: '700', color: '#0f172a', cursor: 'pointer', textAlign: 'left' }}
+              >
+                <span style={{ fontSize: '18px' }}>👑</span>
+                <span>सब्सक्रिप्शन प्लान्स (Subscription)</span>
+              </button>
+
+              <button 
+                onClick={() => { setShowDrawerMenu(false); setShowContactModal(true); }}
+                style={{ display: 'flex', alignItems: 'center', gap: '14px', width: '100%', padding: '12px 14px', border: 'none', background: 'transparent', borderRadius: '14px', fontSize: '14px', fontWeight: '700', color: '#0f172a', cursor: 'pointer', textAlign: 'left' }}
+              >
+                <span style={{ fontSize: '18px' }}>📞</span>
+                <span>संपर्क जानकारी (Contact Information)</span>
+              </button>
+
+              <button 
+                onClick={() => { 
+                  setShowDrawerMenu(false); 
+                  window.open(`https://wa.me/91${SUPPORT_PHONE}?text=${encodeURIComponent('नमस्ते, मुझे Kiraya Manager ऐप के संबंध में सहायता चाहिए।')}`, '_blank');
+                }}
+                style={{ display: 'flex', alignItems: 'center', gap: '14px', width: '100%', padding: '12px 14px', border: 'none', background: 'transparent', borderRadius: '14px', fontSize: '14px', fontWeight: '700', color: '#16a34a', cursor: 'pointer', textAlign: 'left' }}
+              >
+                <span style={{ fontSize: '18px' }}>💬</span>
+                <span>व्हाट्सएप चैट (WhatsApp Support)</span>
+              </button>
+
+              <button 
+                onClick={() => { 
+                  setShowDrawerMenu(false); 
+                  window.location.href = `mailto:${SUPPORT_EMAIL}?subject=Kiraya Manager Support Request`;
+                }}
+                style={{ display: 'flex', alignItems: 'center', gap: '14px', width: '100%', padding: '12px 14px', border: 'none', background: 'transparent', borderRadius: '14px', fontSize: '14px', fontWeight: '700', color: '#0284c7', cursor: 'pointer', textAlign: 'left' }}
+              >
+                <span style={{ fontSize: '18px' }}>✉️</span>
+                <span>ईमेल सपोर्ट (Email Us)</span>
+              </button>
+
+              <button 
+                onClick={() => { setShowDrawerMenu(false); setShowChangeAdminPassModal(true); }}
+                style={{ display: 'flex', alignItems: 'center', gap: '14px', width: '100%', padding: '12px 14px', border: 'none', background: 'transparent', borderRadius: '14px', fontSize: '14px', fontWeight: '700', color: '#0f172a', cursor: 'pointer', textAlign: 'left' }}
+              >
+                <span style={{ fontSize: '18px' }}>🔑</span>
+                <span>पासवर्ड बदलें (Change Password)</span>
+              </button>
+
+              <div style={{ height: '1px', backgroundColor: '#f1f5f9', margin: '8px 0' }}></div>
+
+              <button 
+                onClick={handleLogout}
+                style={{ display: 'flex', alignItems: 'center', gap: '14px', width: '100%', padding: '12px 14px', border: 'none', background: '#fef2f2', borderRadius: '14px', fontSize: '14px', fontWeight: '700', color: '#ef4444', cursor: 'pointer', textAlign: 'left' }}
+              >
+                <span style={{ fontSize: '18px' }}>🚪</span>
+                <span>लॉगआउट (Logout)</span>
+              </button>
+            </div>
+
+            {/* Drawer Footer */}
+            <div style={{ padding: '16px 20px', borderTop: '1px solid #f1f5f9', fontSize: '11px', color: '#94a3b8', textAlign: 'center' }}>
+              Kiraya Manager App v2.5
+            </div>
+          </div>
+
+          <div style={{ flex: 1 }} onClick={() => setShowDrawerMenu(false)}></div>
+        </div>
+      )}
 
       {/* INDIVIDUAL ROOM DEDICATED DASHBOARD */}
       {selectedRoom ? (
@@ -1916,7 +2078,7 @@ export default function App() {
                   </div>
                 </div>
                 {(expenseDateFilter.startDate || expenseDateFilter.endDate) && (
-                  <div style={{ textAlign: 'right', marginTop: '6px' }}>
+                  <div style={{ textAlign: 'right', marginTop: '4px' }}>
                     <span 
                       onClick={() => setExpenseDateFilter({ startDate: '', endDate: '' })}
                       style={{ fontSize: '11px', color: '#ef4444', fontWeight: '700', cursor: 'pointer' }}
@@ -2082,7 +2244,7 @@ export default function App() {
         </>
       )}
 
-      {/* MODAL 1: DASHBOARD CLICK DETAILED EXPENSE LIST (KHARCHE KI DETAIL + DATE FILTER) */}
+      {/* MODAL 1: DASHBOARD CLICK DETAILED EXPENSE LIST */}
       {showExpenseListModal && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px', zIndex: 99999 }}>
           <div style={{ backgroundColor: '#fff', width: '100%', maxWidth: '390px', borderRadius: '24px', padding: '20px', maxHeight: '88vh', overflowY: 'auto' }}>
@@ -2185,7 +2347,136 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 2: PASSWORD CHANGE */}
+      {/* MODAL 2: CONTACT INFORMATION */}
+      {showContactModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px', zIndex: 99999 }}>
+          <div style={{ backgroundColor: '#fff', width: '100%', maxWidth: '350px', borderRadius: '24px', padding: '22px', textAlign: 'center' }}>
+            <span style={{ fontSize: '36px' }}>📞</span>
+            <h3 style={{ margin: '8px 0 4px', fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>संपर्क जानकारी (Contact Us)</h3>
+            <p style={{ margin: '0 0 16px', fontSize: '12px', color: '#64748b' }}>
+              Kiraya Manager सपोर्ट टीम से किसी भी समय सहायता प्राप्त करें:
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', textAlign: 'left', marginBottom: '18px' }}>
+              <div style={{ backgroundColor: '#f8fafc', padding: '12px 14px', borderRadius: '16px', border: '1px solid #f1f5f9' }}>
+                <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '700' }}>कॉल सपोर्ट (Customer Care):</div>
+                <div style={{ fontSize: '15px', fontWeight: '800', color: '#0284c7', marginTop: '2px' }}>
+                  <a href={`tel:${SUPPORT_PHONE}`} style={{ color: '#0284c7', textDecoration: 'none' }}>+91 {SUPPORT_PHONE}</a>
+                </div>
+              </div>
+
+              <div style={{ backgroundColor: '#f8fafc', padding: '12px 14px', borderRadius: '16px', border: '1px solid #f1f5f9' }}>
+                <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '700' }}>व्हाट्सएप हेल्पलाइन:</div>
+                <div style={{ fontSize: '14px', fontWeight: '800', color: '#16a34a', marginTop: '2px' }}>
+                  <a href={`https://wa.me/91${SUPPORT_PHONE}`} target="_blank" rel="noreferrer" style={{ color: '#16a34a', textDecoration: 'none' }}>+91 {SUPPORT_PHONE} (Chat Live)</a>
+                </div>
+              </div>
+
+              <div style={{ backgroundColor: '#f8fafc', padding: '12px 14px', borderRadius: '16px', border: '1px solid #f1f5f9' }}>
+                <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '700' }}>ईमेल सपोर्ट (Email Support):</div>
+                <div style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a', marginTop: '2px' }}>
+                  <a href={`mailto:${SUPPORT_EMAIL}`} style={{ color: '#0f172a', textDecoration: 'none' }}>{SUPPORT_EMAIL}</a>
+                </div>
+              </div>
+
+              <div style={{ backgroundColor: '#f0fdf4', padding: '10px 14px', borderRadius: '14px', border: '1px solid #bbf7d0', fontSize: '11.5px', color: '#166534', fontWeight: '700' }}>
+                ⏰ सहायता समय: सुबह 9:00 AM से शाम 8:00 PM (सोमवार - शनिवार)
+              </div>
+            </div>
+
+            <button 
+              onClick={() => setShowContactModal(false)}
+              style={{ width: '100%', backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '12px', borderRadius: '30px', fontWeight: '800', fontSize: '13px', cursor: 'pointer' }}
+            >
+              ठीक है (Close)
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: EDIT OWNER PROFILE / DETAILS */}
+      {showEditProfileModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px', zIndex: 99999 }}>
+          <div style={{ backgroundColor: '#fff', width: '100%', maxWidth: '370px', borderRadius: '24px', padding: '22px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <h3 style={{ margin: '0 0 12px 0', fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>
+              👤 मेरी प्रोफ़ाइल / विवरण बदलें
+            </h3>
+            <form onSubmit={handleSaveOwnerProfile} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>आपका पूरा नाम (खाता धारक):</label>
+                <input 
+                  type="text" 
+                  value={profileForm.name} 
+                  onChange={e => setProfileForm({ ...profileForm, name: e.target.value })} 
+                  style={{ width: '92%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '12px', outline: 'none', marginTop: '4px' }} 
+                  required 
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>रजिस्टर्ड मोबाइल नंबर:</label>
+                <input 
+                  type="tel" 
+                  maxLength={10}
+                  value={profileForm.phone} 
+                  onChange={e => setProfileForm({ ...profileForm, phone: e.target.value })} 
+                  style={{ width: '92%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '12px', outline: 'none', marginTop: '4px' }} 
+                  required 
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>UPI ID (किराया प्राप्त करने हेतु):</label>
+                <input 
+                  type="text" 
+                  value={profileForm.upiId} 
+                  onChange={e => setProfileForm({ ...profileForm, upiId: e.target.value })} 
+                  style={{ width: '92%', padding: '10px', border: '1.5px solid #0284c7', borderRadius: '12px', outline: 'none', marginTop: '4px', fontWeight: '700' }} 
+                  required 
+                />
+              </div>
+
+              <div style={{ borderTop: '1px dashed #cbd5e1', paddingTop: '8px' }}>
+                <span style={{ fontSize: '11px', fontWeight: '800', color: '#475569' }}>बैंक खाता विवरण (वैकल्पिक):</span>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '11px', color: '#64748b' }}>बैंक खाता संख्या (A/C No):</label>
+                <input 
+                  type="text" 
+                  placeholder="A/C Number"
+                  value={profileForm.accNo} 
+                  onChange={e => setProfileForm({ ...profileForm, accNo: e.target.value })} 
+                  style={{ width: '92%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '12px', outline: 'none', marginTop: '4px' }} 
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '11px', color: '#64748b' }}>बैंक IFSC कोड:</label>
+                <input 
+                  type="text" 
+                  placeholder="IFSC Code"
+                  value={profileForm.ifsc} 
+                  onChange={e => setProfileForm({ ...profileForm, ifsc: e.target.value })} 
+                  style={{ width: '92%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '12px', outline: 'none', marginTop: '4px' }} 
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                <button type="submit" style={{ flex: 1, backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '12px', borderRadius: '30px', fontWeight: '700', cursor: 'pointer' }}>
+                  विवरण सुरक्षित करें
+                </button>
+                <button type="button" onClick={() => setShowEditProfileModal(false)} style={{ flex: 1, border: '1px solid #cbd5e1', background: '#fff', padding: '12px', borderRadius: '30px', fontWeight: '700', cursor: 'pointer' }}>
+                  रद्द
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 4: PASSWORD CHANGE */}
       {showChangeAdminPassModal && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px', zIndex: 9999 }}>
           <div style={{ backgroundColor: '#fff', width: '100%', maxWidth: '340px', borderRadius: '24px', padding: '20px' }}>
@@ -2203,7 +2494,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 3: ADD / EDIT ROOM */}
+      {/* MODAL 5: ADD / EDIT ROOM */}
       {showAddRoom && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px', zIndex: 9999 }}>
           <div style={{ backgroundColor: '#fff', width: '100%', maxWidth: '370px', borderRadius: '24px', padding: '22px', maxHeight: '90vh', overflowY: 'auto' }}>
@@ -2248,7 +2539,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 4: ADD / EDIT PROPERTY */}
+      {/* MODAL 6: ADD / EDIT PROPERTY */}
       {showAddProperty && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px', zIndex: 9999 }}>
           <div style={{ backgroundColor: '#fff', width: '100%', maxWidth: '370px', borderRadius: '24px', padding: '22px', maxHeight: '90vh', overflowY: 'auto' }}>
@@ -2283,7 +2574,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 5: ADD NEW EXPENSE */}
+      {/* MODAL 7: ADD NEW EXPENSE */}
       {showAddExpenseModal && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px', zIndex: 9999 }}>
           <div style={{ backgroundColor: '#fff', width: '100%', maxWidth: '370px', borderRadius: '24px', padding: '22px', maxHeight: '90vh', overflowY: 'auto' }}>
@@ -2398,7 +2689,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 6: PAYMENT MODAL */}
+      {/* MODAL 8: PAYMENT MODAL */}
       {paymentModalRoom && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px', zIndex: 9999 }}>
           <div style={{ backgroundColor: '#fff', width: '100%', maxWidth: '360px', borderRadius: '24px', padding: '20px' }}>
@@ -2421,7 +2712,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 7: QR CODE MODAL */}
+      {/* MODAL 9: QR CODE MODAL */}
       {qrModalRoom && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px', zIndex: 9999 }}>
           <div style={{ backgroundColor: '#fff', width: '100%', maxWidth: '340px', borderRadius: '24px', padding: '24px', textAlign: 'center' }}>
@@ -2459,7 +2750,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 8: SUBSCRIPTION UPGRADE MODAL */}
+      {/* MODAL 10: SUBSCRIPTION UPGRADE MODAL */}
       {showPayModal && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px', zIndex: 99999 }}>
           <div style={{ backgroundColor: '#fff', width: '100%', maxWidth: '380px', borderRadius: '24px', padding: '24px', textAlign: 'center', position: 'relative' }}>
@@ -2573,9 +2864,13 @@ export default function App() {
         })}
       </nav>
 
-      {/* PRINT STYLES & FONTS */}
+      {/* PRINT STYLES & ANIMATIONS */}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap');
+        @keyframes slideIn {
+          from { transform: translateX(-100%); }
+          to { transform: translateX(0); }
+        }
         @media print {
           body { background-color: #fff !important; }
           .no-print { display: none !important; }
