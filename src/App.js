@@ -1705,7 +1705,15 @@ export default function App() {
             <div style={{ padding: '16px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>मेरी प्रॉपर्टीज ({properties.length})</h2>
-                <button onClick={() => { setEditingPropId(p.id); setPropForm({ name: '', address: '', pincode: '', locationUrl: '', photo: '', caretakerName: '', caretakerPhone: '', caretakerPhoto: '' }); setShowAddProperty(true); }} style={{ backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '25px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', boxShadow: '0 4px 10px rgba(2, 132, 199, 0.25)' }}>
+                {/* Fixed "+ नई प्रॉपर्टी" बटन: यहाँ से p.id एरर हटाकर सही रीसेट लगाया गया है */}
+                <button 
+                  onClick={() => { 
+                    setEditingPropId(null); 
+                    setPropForm({ name: '', address: '', pincode: '', locationUrl: '', photo: '', caretakerName: '', caretakerPhone: '', caretakerPhoto: '' }); 
+                    setShowAddProperty(true); 
+                  }} 
+                  style={{ backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '25px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', boxShadow: '0 4px 10px rgba(2, 132, 199, 0.25)' }}
+                >
                   + नई प्रॉपर्टी
                 </button>
               </div>
@@ -2190,11 +2198,13 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 4: ADD PROPERTY */}
+      {/* MODAL 4: ADD / EDIT PROPERTY (ROBUST FIX) */}
       {showAddProperty && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px', zIndex: 9999 }}>
           <div style={{ backgroundColor: '#fff', width: '100%', maxWidth: '370px', borderRadius: '24px', padding: '22px', maxHeight: '90vh', overflowY: 'auto' }}>
-            <h3 style={{ margin: '0 0 12px 0', fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>+ नई प्रॉपर्टी जोड़ें</h3>
+            <h3 style={{ margin: '0 0 12px 0', fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>
+              {editingPropId ? '✏️ प्रॉपर्टी विवरण सुधारें' : '+ नई प्रॉपर्टी जोड़ें'}
+            </h3>
             <form onSubmit={(e) => {
               e.preventDefault();
               let updated;
@@ -2205,6 +2215,7 @@ export default function App() {
               }
               updatePropsInDb(updated);
               setShowAddProperty(false);
+              setEditingPropId(null);
             }} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <input placeholder="प्रॉपर्टी नाम (श्याम भवन) *" value={propForm.name} onChange={e => setPropForm({ ...propForm, name: e.target.value })} style={{ padding: '10px', border: '1px solid #cbd5e1', borderRadius: '12px' }} required />
               <input placeholder="पूरा पता *" value={propForm.address} onChange={e => setPropForm({ ...propForm, address: e.target.value })} style={{ padding: '10px', border: '1px solid #cbd5e1', borderRadius: '12px' }} required />
@@ -2215,7 +2226,7 @@ export default function App() {
               <input placeholder="केयरटेकर फोन *" value={propForm.caretakerPhone} onChange={e => setPropForm({ ...propForm, caretakerPhone: e.target.value })} style={{ padding: '10px', border: '1px solid #cbd5e1', borderRadius: '12px' }} required />
               <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                 <button type="submit" style={{ flex: 1, backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '12px', borderRadius: '30px', fontWeight: '700' }}>सुरक्षित करें</button>
-                <button type="button" onClick={() => setShowAddProperty(false)} style={{ flex: 1, border: '1px solid #cbd5e1', background: '#fff', padding: '12px', borderRadius: '30px', fontWeight: '700' }}>रद्द</button>
+                <button type="button" onClick={() => { setShowAddProperty(false); setEditingPropId(null); }} style={{ flex: 1, border: '1px solid #cbd5e1', background: '#fff', padding: '12px', borderRadius: '30px', fontWeight: '700' }}>रद्द</button>
               </div>
             </form>
           </div>
