@@ -18,7 +18,7 @@ const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
 const ADMIN_UPI = "vs.kumar4@ybl";
-const SUPPORT_PHONE = "9876543210";
+const SUPPORT_PHONE = "7976969660";
 const SUPPORT_EMAIL = "support@kirayamanager.pro";
 
 export default function App() {
