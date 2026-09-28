@@ -96,6 +96,14 @@ export default function App() {
   // Dainik Kharcha (Expenses) States with Room-wise & Category Support
   const [expenses, setExpenses] = useState([]);
   const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
+  const [showExpenseListModal, setShowExpenseListModal] = useState(false); // Dashboard click modal state
+  
+  // Date range filter for expenses
+  const [expenseDateFilter, setExpenseDateFilter] = useState({
+    startDate: '',
+    endDate: ''
+  });
+
   const [expenseForm, setExpenseForm] = useState({
     title: '',
     amount: '',
@@ -968,10 +976,22 @@ export default function App() {
   const totalJamaFiltered = visibleRooms.reduce((acc, r) => acc + getPaidTotal(r), 0);
   const totalAdvanceFiltered = occupiedList.reduce((acc, r) => acc + (Number(r.security || 0) + Number(r.depositAmount || 0)), 0);
 
-  const visibleExpenses = expenses.filter(exp => propertyFilter === 'all' || exp.propName === propertyFilter);
+  // Expense filtered by property AND Date Range
+  const getFilteredExpenses = () => {
+    return expenses
+      .filter(exp => propertyFilter === 'all' || exp.propName === propertyFilter)
+      .filter(exp => {
+        if (!exp.date) return true;
+        if (expenseDateFilter.startDate && exp.date < expenseDateFilter.startDate) return false;
+        if (expenseDateFilter.endDate && exp.date > expenseDateFilter.endDate) return false;
+        return true;
+      });
+  };
+
+  const visibleExpenses = getFilteredExpenses();
   const totalExpenseFiltered = visibleExpenses.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
   
-  // Real Net Profit / Loss calculation (Rent Collected - Total Expenses)
+  // Real Net Profit / Loss calculation (Rent Collected - Total Filtered Expenses)
   const netProfitLoss = totalJamaFiltered - totalExpenseFiltered;
 
   // 1. GATEWAY SCREEN
@@ -1550,7 +1570,7 @@ export default function App() {
                 </select>
               </div>
 
-              {/* LIVE PROFIT & LOSS CARD (REVENUE - EXPENSES) */}
+              {/* LIVE PROFIT & LOSS CARD (CLICK TO OPEN EXPENSE DETAILS MODAL) */}
               <div style={{ backgroundColor: '#fff', borderRadius: '24px', padding: '18px 20px', border: '1px solid #e2e8f0', boxShadow: '0 8px 25px rgba(0,0,0,0.05)', marginBottom: '16px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                   <span style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>📊 लाभ व हानि (P&L Summary)</span>
@@ -1566,10 +1586,22 @@ export default function App() {
                       ₹{totalJamaFiltered.toLocaleString()}
                     </div>
                   </div>
-                  <div style={{ backgroundColor: '#fef2f2', padding: '12px', borderRadius: '16px', border: '1px solid #fecaca' }}>
-                    <div style={{ fontSize: '11px', color: '#991b1b', fontWeight: '700' }}>कुल बिल्डिंग खर्चा (Expense)</div>
+                  
+                  {/* CLICKABLE EXPENSE TILE */}
+                  <div 
+                    onClick={() => setShowExpenseListModal(true)}
+                    style={{ backgroundColor: '#fef2f2', padding: '12px', borderRadius: '16px', border: '1.5px solid #fca5a5', cursor: 'pointer', transition: 'all 0.2s ease', position: 'relative' }}
+                    title="क्लिक करके सभी खर्चे देखें"
+                  >
+                    <div style={{ fontSize: '11px', color: '#991b1b', fontWeight: '700', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>कुल बिल्डिंग खर्चा ℹ️</span>
+                      <span style={{ fontSize: '10px', backgroundColor: '#fee2e2', color: '#ef4444', padding: '1px 5px', borderRadius: '6px' }}>खोलें</span>
+                    </div>
                     <div style={{ fontSize: '18px', fontWeight: '900', color: '#b91c1c', marginTop: '2px' }}>
                       ₹{totalExpenseFiltered.toLocaleString()}
+                    </div>
+                    <div style={{ fontSize: '9.5px', color: '#dc2626', marginTop: '4px', textDecoration: 'underline' }}>
+                      सारे खर्चे देखें ({visibleExpenses.length}) →
                     </div>
                   </div>
                 </div>
@@ -1673,7 +1705,7 @@ export default function App() {
             <div style={{ padding: '16px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>मेरी प्रॉपर्टीज ({properties.length})</h2>
-                <button onClick={() => { setEditingPropId(null); setPropForm({ name: '', address: '', pincode: '', locationUrl: '', photo: '', caretakerName: '', caretakerPhone: '', caretakerPhoto: '' }); setShowAddProperty(true); }} style={{ backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '25px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', boxShadow: '0 4px 10px rgba(2, 132, 199, 0.25)' }}>
+                <button onClick={() => { setEditingPropId(p.id); setPropForm({ name: '', address: '', pincode: '', locationUrl: '', photo: '', caretakerName: '', caretakerPhone: '', caretakerPhoto: '' }); setShowAddProperty(true); }} style={{ backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '25px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', boxShadow: '0 4px 10px rgba(2, 132, 199, 0.25)' }}>
                   + नई प्रॉपर्टी
                 </button>
               </div>
@@ -1774,10 +1806,10 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB: DAINIK KHARCHA (EXPENSES WITH ROOM & COMMON BREAKDOWN) */}
+          {/* TAB: DAINIK KHARCHA (EXPENSES WITH DATE RANGE & ROOM FILTER) */}
           {activeTab === 'expenses' && (
             <div style={{ padding: '16px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
                 <div>
                   <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>💰 दैनिक खर्चा (Expenses)</h2>
                   <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
@@ -1800,9 +1832,46 @@ export default function App() {
                 </button>
               </div>
 
+              {/* DATE RANGE FILTER IN EXPENSES TAB */}
+              <div style={{ backgroundColor: '#fff', padding: '12px 14px', borderRadius: '20px', border: '1px solid #f1f5f9', boxShadow: '0 4px 15px rgba(0,0,0,0.02)', marginBottom: '14px' }}>
+                <div style={{ fontSize: '11px', fontWeight: '800', color: '#475569', marginBottom: '6px' }}>
+                  📅 खर्चे की अवधि (कब से कब तक का विवरण):
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <div>
+                    <label style={{ fontSize: '10px', color: '#64748b', fontWeight: '700' }}>दिनांक से (Start):</label>
+                    <input 
+                      type="date"
+                      value={expenseDateFilter.startDate}
+                      onChange={e => setExpenseDateFilter({ ...expenseDateFilter, startDate: e.target.value })}
+                      style={{ width: '90%', padding: '6px 8px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '12px', outline: 'none' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '10px', color: '#64748b', fontWeight: '700' }}>दिनांक तक (End):</label>
+                    <input 
+                      type="date"
+                      value={expenseDateFilter.endDate}
+                      onChange={e => setExpenseDateFilter({ ...expenseDateFilter, endDate: e.target.value })}
+                      style={{ width: '90%', padding: '6px 8px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '12px', outline: 'none' }}
+                    />
+                  </div>
+                </div>
+                {(expenseDateFilter.startDate || expenseDateFilter.endDate) && (
+                  <div style={{ textAlign: 'right', marginTop: '6px' }}>
+                    <span 
+                      onClick={() => setExpenseDateFilter({ startDate: '', endDate: '' })}
+                      style={{ fontSize: '11px', color: '#ef4444', fontWeight: '700', cursor: 'pointer' }}
+                    >
+                      फ़िल्टर हटाएं ✕
+                    </span>
+                  </div>
+                )}
+              </div>
+
               {visibleExpenses.length === 0 ? (
                 <div style={{ backgroundColor: '#fff', padding: '30px 20px', borderRadius: '24px', textAlign: 'center', color: '#94a3b8', border: '1px solid #f1f5f9' }}>
-                  अभी तक कोई खर्चा दर्ज नहीं किया गया है।
+                  चयनित अवधि या प्रॉपर्टी के लिए कोई खर्चा नहीं मिला।
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -1955,7 +2024,110 @@ export default function App() {
         </>
       )}
 
-      {/* MODALS */}
+      {/* MODAL 1: DASHBOARD CLICK DETAILED EXPENSE LIST (KHARCHE KI DETAIL + DATE FILTER) */}
+      {showExpenseListModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px', zIndex: 99999 }}>
+          <div style={{ backgroundColor: '#fff', width: '100%', maxWidth: '390px', borderRadius: '24px', padding: '20px', maxHeight: '88vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '17px', fontWeight: '800', color: '#991b1b' }}>🏢 बिल्डिंग खर्चे का पूरा ब्योरा</h3>
+                <span style={{ fontSize: '11px', color: '#64748b' }}>
+                  {propertyFilter === 'all' ? 'सभी प्रॉपर्टीज' : propertyFilter}
+                </span>
+              </div>
+              <span onClick={() => setShowExpenseListModal(false)} style={{ cursor: 'pointer', fontWeight: 'bold', fontSize: '18px', color: '#64748b' }}>✕</span>
+            </div>
+
+            {/* DATE RANGE FILTER BOX */}
+            <div style={{ backgroundColor: '#fef2f2', padding: '10px', borderRadius: '16px', border: '1px solid #fecaca', marginBottom: '12px' }}>
+              <div style={{ fontSize: '11px', fontWeight: '800', color: '#991b1b', marginBottom: '4px' }}>
+                📅 खर्चे की तारीख चुनें (अवधि फ़िल्टर):
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                <div>
+                  <label style={{ fontSize: '10px', color: '#64748b' }}>शुरू तारीख:</label>
+                  <input 
+                    type="date"
+                    value={expenseDateFilter.startDate}
+                    onChange={e => setExpenseDateFilter({ ...expenseDateFilter, startDate: e.target.value })}
+                    style={{ width: '88%', padding: '5px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '11px', outline: 'none' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '10px', color: '#64748b' }}>अंतिम तारीख:</label>
+                  <input 
+                    type="date"
+                    value={expenseDateFilter.endDate}
+                    onChange={e => setExpenseDateFilter({ ...expenseDateFilter, endDate: e.target.value })}
+                    style={{ width: '88%', padding: '5px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '11px', outline: 'none' }}
+                  />
+                </div>
+              </div>
+              {(expenseDateFilter.startDate || expenseDateFilter.endDate) && (
+                <div style={{ textAlign: 'right', marginTop: '4px' }}>
+                  <span onClick={() => setExpenseDateFilter({ startDate: '', endDate: '' })} style={{ fontSize: '10px', color: '#ef4444', fontWeight: '700', cursor: 'pointer' }}>
+                    फ़िल्टर हटाएं ✕
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '8px 12px', borderRadius: '12px', marginBottom: '10px', fontSize: '12px' }}>
+              <span style={{ color: '#64748b' }}>कुल खर्चे ({visibleExpenses.length}):</span>
+              <strong style={{ color: '#ef4444', fontSize: '15px' }}>₹{totalExpenseFiltered.toLocaleString()}</strong>
+            </div>
+
+            {visibleExpenses.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '20px 0', color: '#94a3b8', fontSize: '12px' }}>
+                इस अवधि में कोई खर्चा दर्ज नहीं है।
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {visibleExpenses.map(exp => (
+                  <div key={exp.id} style={{ backgroundColor: '#f8fafc', padding: '10px 12px', borderRadius: '14px', border: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontWeight: '800', fontSize: '13px', color: '#0f172a' }}>{exp.title}</div>
+                      <div style={{ fontSize: '11px', color: '#64748b' }}>
+                        🏷️ {exp.category} · 🏢 {exp.propName}
+                      </div>
+                      <div style={{ fontSize: '10.5px', color: '#0284c7', fontWeight: '700' }}>
+                        🚪 {exp.scope === 'room' ? `कमरा: ${exp.roomNo}` : '🏢 कॉमन बिल्डिंग खर्चा'}
+                      </div>
+                      <div style={{ fontSize: '10px', color: '#94a3b8' }}>
+                        📅 {exp.date} {exp.note && `• ${exp.note}`}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontWeight: '900', color: '#ef4444', fontSize: '14px' }}>-₹{exp.amount}</div>
+                      <button onClick={() => handleDeleteExpense(exp.id)} style={{ border: 'none', background: '#fee2e2', color: '#ef4444', padding: '4px 6px', borderRadius: '6px', cursor: 'pointer', fontSize: '10px', marginTop: '4px' }}>🗑️</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '8px', marginTop: '14px' }}>
+              <button 
+                onClick={() => {
+                  setShowExpenseListModal(false);
+                  setActiveTab('expenses');
+                }} 
+                style={{ flex: 1, backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '10px', borderRadius: '20px', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}
+              >
+                खर्चा टैब पर जाएं ↗
+              </button>
+              <button 
+                onClick={() => setShowExpenseListModal(false)} 
+                style={{ flex: 1, border: '1px solid #cbd5e1', background: '#fff', padding: '10px', borderRadius: '20px', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}
+              >
+                बंद करें
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: PASSWORD CHANGE */}
       {showChangeAdminPassModal && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px', zIndex: 9999 }}>
           <div style={{ backgroundColor: '#fff', width: '100%', maxWidth: '340px', borderRadius: '24px', padding: '20px' }}>
@@ -1973,6 +2145,7 @@ export default function App() {
         </div>
       )}
 
+      {/* MODAL 3: ADD / EDIT ROOM */}
       {showAddRoom && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px', zIndex: 9999 }}>
           <div style={{ backgroundColor: '#fff', width: '100%', maxWidth: '370px', borderRadius: '24px', padding: '22px', maxHeight: '90vh', overflowY: 'auto' }}>
@@ -2017,6 +2190,7 @@ export default function App() {
         </div>
       )}
 
+      {/* MODAL 4: ADD PROPERTY */}
       {showAddProperty && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px', zIndex: 9999 }}>
           <div style={{ backgroundColor: '#fff', width: '100%', maxWidth: '370px', borderRadius: '24px', padding: '22px', maxHeight: '90vh', overflowY: 'auto' }}>
@@ -2048,14 +2222,13 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL: DAINIK KHARCHA ENTRY (WITH ROOM & COMMON CHOICES) */}
+      {/* MODAL 5: ADD NEW EXPENSE */}
       {showAddExpenseModal && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px', zIndex: 9999 }}>
           <div style={{ backgroundColor: '#fff', width: '100%', maxWidth: '370px', borderRadius: '24px', padding: '22px', maxHeight: '90vh', overflowY: 'auto' }}>
             <h3 style={{ margin: '0 0 14px 0', fontSize: '18px', fontWeight: '800', color: '#0f172a' }}>+ नया खर्चा दर्ज करें</h3>
             <form onSubmit={handleSaveExpense} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               
-              {/* Category Dropdown (With Bijli Bill & Dekhrekh / Caretaker) */}
               <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>खर्चे का प्रकार (Category):</label>
               <select 
                 value={expenseForm.category} 
@@ -2072,7 +2245,6 @@ export default function App() {
                 <option value="Anya / Misc">📝 अन्य विविध खर्चा</option>
               </select>
 
-              {/* Property Selection */}
               <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>प्रॉपर्टी (Building):</label>
               <select 
                 value={expenseForm.propName || (properties[0]?.name || '')} 
@@ -2082,7 +2254,6 @@ export default function App() {
                 {properties.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
               </select>
 
-              {/* Scope Selection: Common or Specific Room */}
               <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>खर्चा कहाँ हुआ? (Scope):</label>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button
@@ -2101,7 +2272,6 @@ export default function App() {
                 </button>
               </div>
 
-              {/* If Specific Room selected, choose room */}
               {expenseForm.scope === 'room' && (
                 <div>
                   <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>कमरा चुनें:</label>
@@ -2167,6 +2337,7 @@ export default function App() {
         </div>
       )}
 
+      {/* MODAL 6: PAYMENT MODAL */}
       {paymentModalRoom && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px', zIndex: 9999 }}>
           <div style={{ backgroundColor: '#fff', width: '100%', maxWidth: '360px', borderRadius: '24px', padding: '20px' }}>
@@ -2189,6 +2360,7 @@ export default function App() {
         </div>
       )}
 
+      {/* MODAL 7: QR CODE MODAL */}
       {qrModalRoom && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px', zIndex: 9999 }}>
           <div style={{ backgroundColor: '#fff', width: '100%', maxWidth: '340px', borderRadius: '24px', padding: '24px', textAlign: 'center' }}>
@@ -2226,6 +2398,7 @@ export default function App() {
         </div>
       )}
 
+      {/* MODAL 8: SUBSCRIPTION UPGRADE MODAL */}
       {showPayModal && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px', zIndex: 99999 }}>
           <div style={{ backgroundColor: '#fff', width: '100%', maxWidth: '380px', borderRadius: '24px', padding: '24px', textAlign: 'center', position: 'relative' }}>
