@@ -29,7 +29,7 @@ export default function App() {
   const [loggedInTenantRoomId, setLoggedInTenantRoomId] = useState(() => localStorage.getItem('km_tenantRoomId') || null);
   const [activeOwnerId, setActiveOwnerId] = useState(() => localStorage.getItem('km_activeOwnerId') || null);
 
-  // Multi-Owner Auth State
+  // Multi-Owner Auth State (Direct Mobile No - OTP Removed)
   const [isOwnerRegistering, setIsOwnerRegistering] = useState(false);
   const [ownerLoginForm, setOwnerLoginForm] = useState({ id: '', password: '' });
   const [ownerRegisterForm, setOwnerRegisterForm] = useState({ 
@@ -77,7 +77,7 @@ export default function App() {
   const [selectedRoomId, setSelectedRoomId] = useState(null);
   const [propertyFilter, setPropertyFilter] = useState('all');
   
-  // Tab-wise search state
+  // Tab-wise individual search state
   const [tabSearches, setTabSearches] = useState({
     dashboard: '',
     properties: '',
@@ -108,11 +108,12 @@ export default function App() {
   const [properties, setProperties] = useState([]);
   const [rooms, setRooms] = useState([]);
   
-  // Expenses States
+  // Dainik Kharcha (Expenses) States with Room-wise & Category Support
   const [expenses, setExpenses] = useState([]);
   const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
   const [showExpenseListModal, setShowExpenseListModal] = useState(false);
   
+  // Date range filter for expenses
   const [expenseDateFilter, setExpenseDateFilter] = useState({
     startDate: '',
     endDate: ''
@@ -241,6 +242,7 @@ export default function App() {
 
   const [utrForm, setUtrForm] = useState({ amount: '', utrNo: '' });
   
+  // Date Range & view state for Report
   const [reportFilter, setReportFilter] = useState({
     propName: 'all',
     roomId: 'all',
@@ -249,8 +251,11 @@ export default function App() {
   });
 
   // ==========================================
-  // 1. SMART RENT & EXACT MONTH CALCULATION
+  // 1. SMART RENT & EXACT MONTH ENGINE
   // ==========================================
+  // यदि किरायेदार 4 जून को आया है तो:
+  // माह 1: 04/06 से 03/07
+  // माह 2: 04/07 से 03/08 (4 जुलाई आते ही स्वतः जुड़ जाएगा)
   const getRentCycles = (room) => {
     if (!room || !room.moveInDate || !room.rent) return [];
     const parts = room.moveInDate.split('-');
@@ -307,7 +312,7 @@ export default function App() {
 
       currentStart = nextStart;
       cycleIdx++;
-      if (cycleIdx > 600) break;
+      if (cycleIdx > 600) break; // Guard against infinite loop
     }
 
     return cycles;
@@ -315,6 +320,17 @@ export default function App() {
 
   const calculateChargeableMonths = (room) => {
     return getRentCycles(room).length;
+  };
+
+  // पिछली (अंतिम दर्ज) मीटर रीडिंग प्राप्त करने का इंजन
+  const getLatestMeterReading = (r) => {
+    if (r && r.electricityHistory && r.electricityHistory.length > 0) {
+      const latest = r.electricityHistory[0];
+      if (latest && latest.curr !== undefined && latest.curr !== null && !isNaN(Number(latest.curr))) {
+        return Number(latest.curr);
+      }
+    }
+    return Number(r?.currentReading !== undefined && r?.currentReading !== null ? r.currentReading : (r?.initialReading || 0));
   };
 
   const getBijliTotal = (r) => (r.electricityHistory || []).reduce((acc, curr) => acc + (Number(curr.bill) || 0), 0);
@@ -333,7 +349,7 @@ export default function App() {
     if (!room) return [];
     const entries = [];
 
-    // Rent cycles (Debits)
+    // 1. Rent cycles (Debits)
     const rentCycles = getRentCycles(room);
     rentCycles.forEach(rc => {
       entries.push({
@@ -347,7 +363,7 @@ export default function App() {
       });
     });
 
-    // Other charges (Debit on moveInDate)
+    // 2. Other charges (Debit on moveInDate)
     if (Number(room.otherCharges) > 0) {
       entries.push({
         id: `other_${room.id}`,
@@ -360,7 +376,7 @@ export default function App() {
       });
     }
 
-    // Electricity history (Debits)
+    // 3. Electricity history (Debits)
     (room.electricityHistory || []).forEach(b => {
       entries.push({
         id: `bijli_${b.id}`,
@@ -374,7 +390,7 @@ export default function App() {
       });
     });
 
-    // Payments (Credits)
+    // 4. Payments (Credits)
     (room.payments || []).forEach(p => {
       entries.push({
         id: `pay_${p.id}`,
@@ -428,7 +444,7 @@ export default function App() {
     window.location.assign(upiUri);
   };
 
-  // 1-Year Free Registration
+  // 1-YEAR FREE REGISTRATION ENGINE
   const handleOwnerRegister = (e) => {
     e.preventDefault();
 
@@ -532,6 +548,7 @@ export default function App() {
     setShowChangeAdminPassModal(false);
   };
 
+  // OPEN & SAVE OWNER PROFILE DETAILS
   const openEditOwnerProfile = () => {
     const currentOwner = allOwnersData[activeOwnerId] || {};
     const creds = currentOwner.credentials || {};
@@ -814,6 +831,7 @@ export default function App() {
     setShowAddRoom(true);
   };
 
+  // 1-YEAR TRIAL CHECK (NO 5-ROOM LIMIT ANYMORE)
   const currentOwnerProfile = allOwnersData[activeOwnerId] || {};
   const isOwnerPro = currentOwnerProfile.isPro || false;
 
@@ -872,7 +890,7 @@ export default function App() {
         otherChargesNote: roomForm.otherChargesNote,
         moveInDate: roomForm.moveInDate,
         initialReading: Number(roomForm.initialReading) || 0,
-        currentReading: Number(roomForm.initialReading) || 0,
+        currentReading: isSwitchingToNewTenant ? (Number(roomForm.initialReading) || 0) : getLatestMeterReading(existingRoom),
         isVacated: roomForm.status === 'vacant',
         vacateDate: roomForm.status === 'vacant' ? (r.vacateDate || new Date().toISOString().split('T')[0]) : null,
         payments: isSwitchingToNewTenant ? [] : (r.payments || []),
@@ -1038,7 +1056,7 @@ export default function App() {
     const input = meterInputs[room.id] || {};
     const curr = Number(input.curr);
     const rate = Number(input.rate || 10);
-    const prev = Number(room.currentReading || room.initialReading || 0);
+    const prev = getLatestMeterReading(room);
 
     if (!curr || curr < prev) {
       alert(`वर्तमान रीडिंग पिछली रीडिंग (${prev}) से अधिक होनी चाहिए।`);
@@ -1090,7 +1108,7 @@ export default function App() {
   const handleTenantReadingSubmit = (room) => {
     const input = meterInputs[room.id] || {};
     const curr = Number(input.curr);
-    const prev = Number(room.currentReading || room.initialReading || 0);
+    const prev = getLatestMeterReading(room);
 
     if (!curr || curr < prev) {
       alert(`वर्तमान रीडिंग पिछली रीडिंग (${prev}) से अधिक होनी चाहिए।`);
@@ -1124,7 +1142,7 @@ export default function App() {
     alert(`रीडिंग सबमिट हो गई! दिनांक ${readingDate} पर ${units} यूनिट का ₹${bill} बिल में जुड़ गया।`);
   };
 
-  // Expenses Save Handler
+  // Dainik Kharcha (Expenses) Save Handler
   const handleSaveExpense = (e) => {
     e.preventDefault();
     if (!expenseForm.amount || Number(expenseForm.amount) <= 0) {
@@ -1418,6 +1436,7 @@ export default function App() {
 
     const tenantLast4 = (tenantRoom.phone || '').replace(/\D/g, '').slice(-4) || 'XXXX';
     const tenantYear = (tenantRoom.dob || '').split('-')[0] || 'YYYY';
+
     const tenantLedger = getRoomLedger(tenantRoom);
 
     return (
@@ -1511,7 +1530,7 @@ export default function App() {
           {/* METER READING WITH DATE OPTION FOR TENANT */}
           <div style={{ backgroundColor: '#fff', borderRadius: '24px', padding: '20px', border: '1px solid #f1f5f9', marginBottom: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}>
             <strong style={{ fontSize: '14px', color: '#0f172a', display: 'block', marginBottom: '4px' }}>📸 बिजली मीटर रीडिंग</strong>
-            <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '10px' }}>पिछली रीडिंग: <strong>{tenantRoom.currentReading || tenantRoom.initialReading}</strong></div>
+            <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '10px' }}>पिछली रीडिंग: <strong>{getLatestMeterReading(tenantRoom)}</strong></div>
             
             <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', marginBottom: '4px' }}>रीडिंग की तारीख:</label>
             <input
@@ -1833,7 +1852,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* DEBIT / CREDIT LEDGER STATEMENT */}
+          {/* NAYA FEATURE: COMPLETE DEBIT / CREDIT LEDGER STATEMENT */}
           <div style={{ backgroundColor: '#fff', borderRadius: '24px', padding: '20px', border: '1px solid #f1f5f9', boxShadow: '0 4px 20px rgba(0,0,0,0.03)', marginBottom: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
               <div>
@@ -1904,7 +1923,7 @@ export default function App() {
             <div style={{ backgroundColor: '#fff', borderRadius: '24px', padding: '20px', border: '1px solid #f1f5f9', boxShadow: '0 4px 20px rgba(0,0,0,0.03)', marginBottom: '16px' }}>
               <strong style={{ fontSize: '14px', display: 'block', marginBottom: '8px' }}>⚡ नई बिजली मीटर रीडिंग डालें</strong>
               <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '10px' }}>
-                पिछली रीडिंग: <strong>{selectedRoom.currentReading || selectedRoom.initialReading}</strong>
+                पिछली रीडिंग: <strong>{getLatestMeterReading(selectedRoom)}</strong>
               </div>
 
               <div style={{ marginBottom: '10px' }}>
@@ -2261,7 +2280,7 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB: DAINIK KHARCHA */}
+          {/* TAB: DAINIK KHARCHA (EXPENSES WITH DATE RANGE & ROOM FILTER) */}
           {activeTab === 'expenses' && (
             <div style={{ padding: '16px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
@@ -2366,7 +2385,7 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB: REPORT */}
+          {/* TAB: REPORT (WITH DEDICATED ROOM DEBIT/CREDIT LEDGER & GRAND TOTALS) */}
           {activeTab === 'report' && (
             <div style={{ padding: '16px' }}>
               <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
@@ -3218,3 +3237,4 @@ export default function App() {
     </div>
   );
 }
+
