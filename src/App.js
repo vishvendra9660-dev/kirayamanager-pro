@@ -29,7 +29,7 @@ export default function App() {
   const [loggedInTenantRoomId, setLoggedInTenantRoomId] = useState(() => localStorage.getItem('km_tenantRoomId') || null);
   const [activeOwnerId, setActiveOwnerId] = useState(() => localStorage.getItem('km_activeOwnerId') || null);
 
-  // Multi-Owner Auth State (Direct Mobile No - OTP Removed)
+  // Multi-Owner Auth State
   const [isOwnerRegistering, setIsOwnerRegistering] = useState(false);
   const [ownerLoginForm, setOwnerLoginForm] = useState({ id: '', password: '' });
   const [ownerRegisterForm, setOwnerRegisterForm] = useState({ 
@@ -77,7 +77,7 @@ export default function App() {
   const [selectedRoomId, setSelectedRoomId] = useState(null);
   const [propertyFilter, setPropertyFilter] = useState('all');
   
-  // Tab-wise individual search state
+  // Tab-wise search state
   const [tabSearches, setTabSearches] = useState({
     dashboard: '',
     properties: '',
@@ -108,12 +108,11 @@ export default function App() {
   const [properties, setProperties] = useState([]);
   const [rooms, setRooms] = useState([]);
   
-  // Dainik Kharcha (Expenses) States with Room-wise & Category Support
+  // Expenses States
   const [expenses, setExpenses] = useState([]);
   const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
   const [showExpenseListModal, setShowExpenseListModal] = useState(false);
   
-  // Date range filter for expenses
   const [expenseDateFilter, setExpenseDateFilter] = useState({
     startDate: '',
     endDate: ''
@@ -242,7 +241,6 @@ export default function App() {
 
   const [utrForm, setUtrForm] = useState({ amount: '', utrNo: '' });
   
-  // Date Range state for Report
   const [reportFilter, setReportFilter] = useState({
     propName: 'all',
     roomId: 'all',
@@ -250,27 +248,73 @@ export default function App() {
     endDate: ''
   });
 
-  // SMART RENT CALCULATION ENGINE
-  const calculateChargeableMonths = (room) => {
-    if (!room.moveInDate) return 0;
-    const moveIn = new Date(room.moveInDate);
-    const targetDate = room.vacateDate ? new Date(room.vacateDate) : new Date();
+  // ==========================================
+  // 1. SMART RENT & EXACT MONTH CALCULATION
+  // ==========================================
+  const getRentCycles = (room) => {
+    if (!room || !room.moveInDate || !room.rent) return [];
+    const parts = room.moveInDate.split('-');
+    if (parts.length < 3) return [];
+    const startYear = parseInt(parts[0], 10);
+    const startMonth = parseInt(parts[1], 10);
+    const startDay = parseInt(parts[2], 10);
+    if (isNaN(startYear) || isNaN(startMonth) || isNaN(startDay)) return [];
 
-    let completedMonths = (targetDate.getFullYear() - moveIn.getFullYear()) * 12 + (targetDate.getMonth() - moveIn.getMonth());
-    if (targetDate.getDate() < moveIn.getDate()) {
-      completedMonths -= 1;
-    }
-    completedMonths = Math.max(0, completedMonths);
-
-    if (room.isVacated || room.status === 'vacant') {
-      if (completedMonths === 0) return 1;
-      if (targetDate.getDate() > moveIn.getDate()) {
-        return completedMonths + 1;
+    const moveIn = new Date(startYear, startMonth - 1, startDay);
+    let targetDate = new Date();
+    if ((room.isVacated || room.status === 'vacant') && room.vacateDate) {
+      const vParts = room.vacateDate.split('-');
+      if (vParts.length === 3) {
+        targetDate = new Date(parseInt(vParts[0], 10), parseInt(vParts[1], 10) - 1, parseInt(vParts[2], 10));
       }
-      return completedMonths;
     }
 
-    return completedMonths;
+    moveIn.setHours(0, 0, 0, 0);
+    targetDate.setHours(0, 0, 0, 0);
+
+    if (targetDate < moveIn) return [];
+
+    const cycles = [];
+    let currentStart = new Date(moveIn);
+    let cycleIdx = 1;
+
+    while (currentStart <= targetDate) {
+      const nextStartYear = currentStart.getFullYear();
+      const nextStartMonth = currentStart.getMonth() + 1;
+      const daysInNextMonth = new Date(nextStartYear, nextStartMonth + 1, 0).getDate();
+      const clampedDay = Math.min(startDay, daysInNextMonth);
+      const nextStart = new Date(nextStartYear, nextStartMonth, clampedDay);
+
+      const cycleEnd = new Date(nextStart);
+      cycleEnd.setDate(cycleEnd.getDate() - 1);
+
+      const pad = (n) => String(n).padStart(2, '0');
+      const fmtDisplay = (d) => `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+      const isoDate = `${currentStart.getFullYear()}-${pad(currentStart.getMonth() + 1)}-${pad(currentStart.getDate())}`;
+
+      cycles.push({
+        id: `rent_${room.id}_${cycleIdx}_${isoDate}`,
+        type: 'rent',
+        category: 'Rent',
+        cycleNum: cycleIdx,
+        date: isoDate,
+        startDate: fmtDisplay(currentStart),
+        endDate: fmtDisplay(cycleEnd),
+        title: `कमरा किराया (माह ${cycleIdx}: ${fmtDisplay(currentStart)} से ${fmtDisplay(cycleEnd)})`,
+        debit: Number(room.rent) || 0,
+        credit: 0
+      });
+
+      currentStart = nextStart;
+      cycleIdx++;
+      if (cycleIdx > 600) break;
+    }
+
+    return cycles;
+  };
+
+  const calculateChargeableMonths = (room) => {
+    return getRentCycles(room).length;
   };
 
   const getBijliTotal = (r) => (r.electricityHistory || []).reduce((acc, curr) => acc + (Number(curr.bill) || 0), 0);
@@ -282,20 +326,94 @@ export default function App() {
   const getRoomTotalDue = (r) => getRentTotalDue(r) + getBijliTotal(r) + getOtherChargesTotal(r);
   const getRoomBakaya = (r) => Math.max(0, getRoomTotalDue(r) - getPaidTotal(r));
 
-  const getFilteredPaymentsForReport = (r) => {
-    return (r.payments || []).filter(p => {
-      if (!p.date) return true;
-      if (reportFilter.startDate && p.date < reportFilter.startDate) return false;
-      if (reportFilter.endDate && p.date > reportFilter.endDate) return false;
-      return true;
+  // ==========================================
+  // 2. UNIFIED DEBIT / CREDIT LEDGER ENGINE
+  // ==========================================
+  const getRoomLedger = (room) => {
+    if (!room) return [];
+    const entries = [];
+
+    // Rent cycles (Debits)
+    const rentCycles = getRentCycles(room);
+    rentCycles.forEach(rc => {
+      entries.push({
+        id: rc.id,
+        date: rc.date,
+        sortOrder: 1,
+        title: rc.title,
+        category: 'Rent',
+        debit: rc.debit,
+        credit: 0
+      });
+    });
+
+    // Other charges (Debit on moveInDate)
+    if (Number(room.otherCharges) > 0) {
+      entries.push({
+        id: `other_${room.id}`,
+        date: room.moveInDate || new Date().toISOString().split('T')[0],
+        sortOrder: 2,
+        title: `अन्य शुल्क (${room.otherChargesNote || 'विविध'})`,
+        category: 'Other',
+        debit: Number(room.otherCharges) || 0,
+        credit: 0
+      });
+    }
+
+    // Electricity history (Debits)
+    (room.electricityHistory || []).forEach(b => {
+      entries.push({
+        id: `bijli_${b.id}`,
+        date: b.date || room.moveInDate || new Date().toISOString().split('T')[0],
+        sortOrder: 3,
+        title: `बिजली बिल (${b.units} यूनिट: ${b.prev} → ${b.curr} @ ₹${b.rate})`,
+        category: 'Electricity',
+        debit: Number(b.bill) || 0,
+        credit: 0,
+        meterPhoto: b.meterPhoto
+      });
+    });
+
+    // Payments (Credits)
+    (room.payments || []).forEach(p => {
+      entries.push({
+        id: `pay_${p.id}`,
+        paymentId: p.id,
+        date: p.date || room.moveInDate || new Date().toISOString().split('T')[0],
+        sortOrder: 4,
+        title: `जमा भुगतान (${p.mode || 'Cash'})${p.note ? ` • ${p.note}` : ''}`,
+        category: 'Payment',
+        debit: 0,
+        credit: Number(p.amount) || 0,
+        rawPayment: p
+      });
+    });
+
+    // Sort by date ascending, then by sortOrder
+    entries.sort((a, b) => {
+      if (a.date !== b.date) {
+        return a.date.localeCompare(b.date);
+      }
+      return a.sortOrder - b.sortOrder;
+    });
+
+    // Calculate Running Balance
+    let runBal = 0;
+    return entries.map(item => {
+      runBal += (item.debit - item.credit);
+      return {
+        ...item,
+        runningBalance: runBal
+      };
     });
   };
 
-  const getFilteredBijliForReport = (r) => {
-    return (r.electricityHistory || []).filter(b => {
-      if (!b.date) return true;
-      if (reportFilter.startDate && b.date < reportFilter.startDate) return false;
-      if (reportFilter.endDate && b.date > reportFilter.endDate) return false;
+  const getFilteredLedgerForReport = (room) => {
+    const ledger = getRoomLedger(room);
+    return ledger.filter(item => {
+      if (!item.date) return true;
+      if (reportFilter.startDate && item.date < reportFilter.startDate) return false;
+      if (reportFilter.endDate && item.date > reportFilter.endDate) return false;
       return true;
     });
   };
@@ -310,7 +428,7 @@ export default function App() {
     window.location.assign(upiUri);
   };
 
-  // 1-YEAR FREE REGISTRATION ENGINE
+  // 1-Year Free Registration
   const handleOwnerRegister = (e) => {
     e.preventDefault();
 
@@ -414,7 +532,6 @@ export default function App() {
     setShowChangeAdminPassModal(false);
   };
 
-  // OPEN & SAVE OWNER PROFILE DETAILS
   const openEditOwnerProfile = () => {
     const currentOwner = allOwnersData[activeOwnerId] || {};
     const creds = currentOwner.credentials || {};
@@ -553,7 +670,8 @@ export default function App() {
       `नमस्ते *${room.tenant}* जी,\n` +
       `आपके *${room.roomNo}* का हिसाब:\n\n` +
       `💰 *कुल बकाया: ₹${bakaya.toLocaleString()}*\n` +
-      `🛡️ एडवांस डिपॉजिट: ₹${room.depositAmount || 0} | सिक्योरिटी: ₹${room.security || 0}\n\n` +
+      `📅 देय अवधि: ${calculateChargeableMonths(room)} माह (${room.moveInDate || '-'} से)\n` +
+      `🛡️ एडवांस: ₹${room.depositAmount || 0} | सिक्योरिटी: ₹${room.security || 0}\n\n` +
       `📲 *QR स्कैन करके पेमेंट करें:*\n` +
       `${qrImageUrl}\n\n` +
       `👉 *सीधे पेमेंट लिंक:*\n` +
@@ -583,33 +701,56 @@ export default function App() {
       .filter(r => !sTerm || r.roomNo.toLowerCase().includes(sTerm) || (r.tenant && r.tenant.toLowerCase().includes(sTerm)));
 
     let summaryText = `*Kiraya Manager Statement Report*\n`;
-    summaryText += `प्रॉपर्टी: ${reportFilter.propName === 'all' ? 'सभी प्रॉपर्टीज' : reportFilter.propName}\n`;
-    summaryText += `दिनांक: ${new Date().toLocaleDateString('hi-IN')}\n`;
+    summaryText += `🏢 प्रॉपर्टी: ${reportFilter.propName === 'all' ? 'सभी प्रॉपर्टीज' : reportFilter.propName}\n`;
+    summaryText += `📅 रिपोर्ट दिनांक: ${new Date().toLocaleDateString('hi-IN')}\n`;
     if (reportFilter.startDate || reportFilter.endDate) {
-      summaryText += `अवधि: ${reportFilter.startDate || 'प्रारंभ'} से ${reportFilter.endDate || 'आज'}\n`;
+      summaryText += `⏱️ अवधि: ${reportFilter.startDate || 'प्रारंभ'} से ${reportFilter.endDate || 'आज'}\n`;
     }
     summaryText += `\n`;
 
+    let grandRent = 0;
+    let grandBijli = 0;
+    let grandPaid = 0;
+    let grandBakaya = 0;
+
     filtered.forEach(r => {
-      const pList = getFilteredPaymentsForReport(r);
-      const bList = getFilteredBijliForReport(r);
-      const bTotal = bList.reduce((acc, curr) => acc + (Number(curr.bill) || 0), 0);
-      const pTotal = pList.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+      const ledger = getFilteredLedgerForReport(r);
+      const rentTotal = ledger.filter(x => x.category === 'Rent').reduce((s, x) => s + x.debit, 0);
+      const bijliTotal = ledger.filter(x => x.category === 'Electricity').reduce((s, x) => s + x.debit, 0);
+      const paidTotal = ledger.filter(x => x.category === 'Payment').reduce((s, x) => s + x.credit, 0);
+      const bakaya = getRoomBakaya(r);
+
+      grandRent += rentTotal;
+      grandBijli += bijliTotal;
+      grandPaid += paidTotal;
+      grandBakaya += bakaya;
 
       summaryText += `------------------------------------\n`;
       summaryText += `🚪 *${r.roomNo}* (${r.status === 'occupied' ? (r.tenant || 'किरायेदार') : 'खाली'})\n`;
-      summaryText += `• किराया: ₹${getRentTotalDue(r)} | बिजली बिल: ₹${bTotal}\n`;
-      summaryText += `• कुल जमा: ₹${pTotal} | *बकाया: ₹${getRoomBakaya(r)}*\n`;
+      summaryText += `• कुल किराया देय: ₹${rentTotal} (${calculateChargeableMonths(r)} माह)\n`;
+      summaryText += `• बिजली बिल: ₹${bijliTotal}\n`;
+      summaryText += `• कुल जमा (Credit): ₹${paidTotal}\n`;
+      summaryText += `• *शुद्ध बकाया (Net Due): ₹${bakaya}*\n`;
       
-      if (pList.length > 0) {
-        summaryText += `   👉 जमा भुगतान विवरण:\n`;
-        pList.forEach(p => {
-          summaryText += `     - ₹${p.amount} (${p.mode}) दिनांक: ${p.date} ${p.note ? `[${p.note}]` : ''}\n`;
+      if (ledger.length > 0) {
+        summaryText += `📋 हालिया प्रविष्टियां:\n`;
+        ledger.slice(-4).forEach(item => {
+          if (item.debit > 0) {
+            summaryText += `  🔺 [Debit ₹${item.debit}] ${item.title} (${item.date})\n`;
+          } else {
+            summaryText += `  🟢 [Credit ₹${item.credit}] ${item.title} (${item.date})\n`;
+          }
         });
-      } else {
-        summaryText += `   👉 कोई भुगतान जमा नहीं हुआ है।\n`;
       }
     });
+
+    summaryText += `\n====================================\n`;
+    summaryText += `📊 *कुल महायोग (Grand Totals):*\n`;
+    summaryText += `• कुल किराया: ₹${grandRent.toLocaleString()}\n`;
+    summaryText += `• कुल बिजली बिल: ₹${grandBijli.toLocaleString()}\n`;
+    summaryText += `• कुल जमा: ₹${grandPaid.toLocaleString()}\n`;
+    summaryText += `• *कुल बाकी बकाया: ₹${grandBakaya.toLocaleString()}*\n`;
+    summaryText += `====================================\n`;
 
     if (navigator.share) {
       try {
@@ -673,7 +814,6 @@ export default function App() {
     setShowAddRoom(true);
   };
 
-  // 1-YEAR TRIAL CHECK (NO 5-ROOM LIMIT ANYMORE)
   const currentOwnerProfile = allOwnersData[activeOwnerId] || {};
   const isOwnerPro = currentOwnerProfile.isPro || false;
 
@@ -774,7 +914,8 @@ export default function App() {
 
   const handleToggleRoomVacate = (room) => {
     if (room.status === 'occupied') {
-      const chargeable = calculateChargeableMonths({ ...room, isVacated: true, vacateDate: new Date().toISOString().split('T')[0] });
+      const vacateToday = new Date().toISOString().split('T')[0];
+      const chargeable = calculateChargeableMonths({ ...room, isVacated: true, vacateDate: vacateToday });
       const rentDue = chargeable * Number(room.rent);
       const totalDue = rentDue + getBijliTotal(room) + getOtherChargesTotal(room);
       const grossBakaya = Math.max(0, totalDue - getPaidTotal(room));
@@ -789,8 +930,6 @@ export default function App() {
       msg += `\n\nक्या आप वाकई कमरा खाली (Vacant) करना चाहते हैं? (किरायेदार का पूरा डेटा इतिहास में सुरक्षित रहेगा)`;
 
       if (window.confirm(msg)) {
-        const vacateToday = new Date().toISOString().split('T')[0];
-        
         const archivedTenantRecord = {
           id: Date.now(),
           tenant: room.tenant,
@@ -894,6 +1033,7 @@ export default function App() {
     updateRoomsInDb(updatedRooms);
   };
 
+  // METER READING SAVE HANDLER (WITH DATE SELECTION SUPPORT)
   const handleSaveBijli = (room) => {
     const input = meterInputs[room.id] || {};
     const curr = Number(input.curr);
@@ -907,9 +1047,11 @@ export default function App() {
 
     const units = curr - prev;
     const bill = units * rate;
+    const readingDate = input.date || new Date().toISOString().split('T')[0];
+
     const newEntry = {
       id: Date.now(),
-      date: input.date || new Date().toISOString().split('T')[0],
+      date: readingDate,
       prev,
       curr,
       units,
@@ -925,8 +1067,11 @@ export default function App() {
     } : r);
 
     updateRoomsInDb(updated);
-    setMeterInputs(prevMap => ({ ...prevMap, [room.id]: { curr: '', rate: '10', date: new Date().toISOString().split('T')[0], meterPhoto: '' } }));
-    alert(`रीडिंग सुरक्षित हुई! ${units} यूनिट का ₹${bill} जुड़ गया।`);
+    setMeterInputs(prevMap => ({ 
+      ...prevMap, 
+      [room.id]: { curr: '', rate: '10', date: new Date().toISOString().split('T')[0], meterPhoto: '' } 
+    }));
+    alert(`रीडिंग सुरक्षित हुई! दिनांक ${readingDate} पर ${units} यूनिट का ₹${bill} जुड़ गया।`);
   };
 
   const handleMeterPhotoUpload = (roomId, file) => {
@@ -941,6 +1086,7 @@ export default function App() {
     reader.readAsDataURL(file);
   };
 
+  // TENANT READING SUBMIT HANDLER (WITH DATE SELECTION SUPPORT)
   const handleTenantReadingSubmit = (room) => {
     const input = meterInputs[room.id] || {};
     const curr = Number(input.curr);
@@ -953,10 +1099,11 @@ export default function App() {
     const defaultRate = 10;
     const units = curr - prev;
     const bill = units * defaultRate;
+    const readingDate = input.date || new Date().toISOString().split('T')[0];
 
     const newEntry = {
       id: Date.now(),
-      date: new Date().toISOString().split('T')[0],
+      date: readingDate,
       prev,
       curr,
       units,
@@ -973,11 +1120,11 @@ export default function App() {
     } : r);
 
     updateRoomsInDb(updated);
-    setMeterInputs(prevMap => ({ ...prevMap, [room.id]: { curr: '', meterPhoto: '' } }));
-    alert(`रीडिंग सबमिट हो गई! ${units} यूनिट का ₹${bill} बिल में जुड़ गया।`);
+    setMeterInputs(prevMap => ({ ...prevMap, [room.id]: { curr: '', date: new Date().toISOString().split('T')[0], meterPhoto: '' } }));
+    alert(`रीडिंग सबमिट हो गई! दिनांक ${readingDate} पर ${units} यूनिट का ₹${bill} बिल में जुड़ गया।`);
   };
 
-  // Dainik Kharcha (Expenses) Save Handler
+  // Expenses Save Handler
   const handleSaveExpense = (e) => {
     e.preventDefault();
     if (!expenseForm.amount || Number(expenseForm.amount) <= 0) {
@@ -1075,7 +1222,9 @@ export default function App() {
   const totalExpenseFiltered = visibleExpenses.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
   const netProfitLoss = totalJamaFiltered - totalExpenseFiltered;
 
+  // ==========================================
   // 1. GATEWAY SCREEN
+  // ==========================================
   if (authRole === 'login_choice') {
     return (
       <div style={{ maxWidth: '440px', margin: '0 auto', minHeight: '100vh', backgroundColor: '#f8fafc', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '20px', fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif" }}>
@@ -1247,7 +1396,9 @@ export default function App() {
     );
   }
 
+  // ==========================================
   // 2. VIEW: KIRAYEDAAR PORTAL
+  // ==========================================
   if (authRole === 'tenant') {
     const tenantRoom = rooms.find(r => r.id === loggedInTenantRoomId);
     if (!tenantRoom || tenantRoom.status === 'vacant') {
@@ -1261,12 +1412,13 @@ export default function App() {
 
     const bakaya = getRoomBakaya(tenantRoom);
     const chargeableMonths = calculateChargeableMonths(tenantRoom);
-    const tInput = meterInputs[tenantRoom.id] || { curr: '', meterPhoto: '' };
+    const tInput = meterInputs[tenantRoom.id] || { curr: '', date: new Date().toISOString().split('T')[0], meterPhoto: '' };
     const dynamicUpiUri = `upi://pay?pa=${payConfig.upiId}&pn=${encodeURIComponent(payConfig.accHolder)}&am=${bakaya}&cu=INR&tn=Rent_${encodeURIComponent(tenantRoom.roomNo)}`;
     const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(dynamicUpiUri)}`;
 
     const tenantLast4 = (tenantRoom.phone || '').replace(/\D/g, '').slice(-4) || 'XXXX';
     const tenantYear = (tenantRoom.dob || '').split('-')[0] || 'YYYY';
+    const tenantLedger = getRoomLedger(tenantRoom);
 
     return (
       <div style={{ maxWidth: '450px', margin: '0 auto', minHeight: '100vh', backgroundColor: '#f8fafc', color: '#0f172a', paddingBottom: '30px', fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif" }}>
@@ -1356,9 +1508,19 @@ export default function App() {
             </button>
           </div>
 
+          {/* METER READING WITH DATE OPTION FOR TENANT */}
           <div style={{ backgroundColor: '#fff', borderRadius: '24px', padding: '20px', border: '1px solid #f1f5f9', marginBottom: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}>
             <strong style={{ fontSize: '14px', color: '#0f172a', display: 'block', marginBottom: '4px' }}>📸 बिजली मीटर रीडिंग</strong>
-            <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '12px' }}>पिछली रीडिंग: <strong>{tenantRoom.currentReading || tenantRoom.initialReading}</strong></div>
+            <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '10px' }}>पिछली रीडिंग: <strong>{tenantRoom.currentReading || tenantRoom.initialReading}</strong></div>
+            
+            <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', marginBottom: '4px' }}>रीडिंग की तारीख:</label>
+            <input
+              type="date"
+              value={tInput.date || new Date().toISOString().split('T')[0]}
+              onChange={e => setMeterInputs({ ...meterInputs, [tenantRoom.id]: { ...tInput, date: e.target.value } })}
+              style={{ width: '92%', padding: '10px 14px', fontSize: '13px', borderRadius: '12px', border: '1px solid #cbd5e1', marginBottom: '10px', outline: 'none' }}
+            />
+
             <input
               type="number"
               placeholder="वर्तमान मीटर रीडिंग"
@@ -1378,12 +1540,37 @@ export default function App() {
               रीडिंग सबमिट करें
             </button>
           </div>
+
+          {/* TENANT LEDGER STATEMENT */}
+          <div style={{ backgroundColor: '#fff', borderRadius: '24px', padding: '20px', border: '1px solid #f1f5f9', boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}>
+            <strong style={{ fontSize: '14px', display: 'block', marginBottom: '12px', color: '#0f172a' }}>
+              📖 आपका खाता बही (Statement)
+            </strong>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {tenantLedger.map((item) => (
+                <div key={item.id} style={{ backgroundColor: '#f8fafc', padding: '10px 12px', borderRadius: '14px', border: '1px solid #f1f5f9', fontSize: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontWeight: '700', color: '#0f172a' }}>{item.title}</span>
+                    <strong style={{ color: item.debit > 0 ? '#ef4444' : '#10b981', fontSize: '13px' }}>
+                      {item.debit > 0 ? `+₹${item.debit}` : `-₹${item.credit}`}
+                    </strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b', fontSize: '11px', marginTop: '4px' }}>
+                    <span>📅 {item.date}</span>
+                    <span>शेष बकाया: <b>₹{item.runningBalance}</b></span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
+  // ==========================================
   // 3. VIEW: OWNER DASHBOARD
+  // ==========================================
   const selectedRoom = rooms.find(r => r.id === selectedRoomId);
 
   return (
@@ -1489,7 +1676,6 @@ export default function App() {
             {/* Drawer Menu Links */}
             <div style={{ display: 'flex', flexDirection: 'column', padding: '14px 10px', gap: '4px', flex: 1, overflowY: 'auto' }}>
               
-              {/* NAYA FEATURE: EDIT OWNER DETAILS */}
               <button 
                 onClick={openEditOwnerProfile}
                 style={{ display: 'flex', alignItems: 'center', gap: '14px', width: '100%', padding: '12px 14px', border: 'none', background: '#f8fafc', borderRadius: '14px', fontSize: '14px', fontWeight: '700', color: '#0284c7', cursor: 'pointer', textAlign: 'left' }}
@@ -1557,7 +1743,7 @@ export default function App() {
 
             {/* Drawer Footer */}
             <div style={{ padding: '16px 20px', borderTop: '1px solid #f1f5f9', fontSize: '11px', color: '#94a3b8', textAlign: 'center' }}>
-              Kiraya Manager App v2.5
+              Kiraya Manager App v2.6 (Smart Ledger Edition)
             </div>
           </div>
 
@@ -1618,6 +1804,7 @@ export default function App() {
             )}
           </div>
 
+          {/* TOTALS & BREAKDOWN SUMMARY */}
           <div style={{ backgroundColor: '#fff', borderRadius: '24px', padding: '18px', border: '1px solid #f1f5f9', boxShadow: '0 4px 20px rgba(0,0,0,0.03)', marginBottom: '16px' }}>
             <strong style={{ fontSize: '14px', display: 'block', marginBottom: '10px', color: '#0f172a' }}>📋 मद-वार विवरण (Breakdown):</strong>
             <div style={{ fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -1640,46 +1827,121 @@ export default function App() {
                 <strong>- ₹{getPaidTotal(selectedRoom)}</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', color: '#0284c7', fontWeight: '800', fontSize: '15px', borderTop: '1px solid #e2e8f0', paddingTop: '8px' }}>
-                <span>कुल बाकी बकाया:</span>
+                <span>कुल बाकी बकाया (Net Due):</span>
                 <span>₹{getRoomBakaya(selectedRoom)}</span>
               </div>
             </div>
           </div>
 
+          {/* DEBIT / CREDIT LEDGER STATEMENT */}
           <div style={{ backgroundColor: '#fff', borderRadius: '24px', padding: '20px', border: '1px solid #f1f5f9', boxShadow: '0 4px 20px rgba(0,0,0,0.03)', marginBottom: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <strong style={{ fontSize: '14px', color: '#0f172a' }}>📜 जमा भुगतान इतिहास</strong>
+              <div>
+                <strong style={{ fontSize: '15px', color: '#0284c7' }}>📖 खाता बही लेजर (Debit/Credit Ledger)</strong>
+                <div style={{ fontSize: '11px', color: '#64748b' }}>माह-वार किराया (Debit) व जमा (Credit) का रनिंग बैलेंस</div>
+              </div>
               {selectedRoom.status === 'occupied' && (
-                <button onClick={() => { setPaymentModalRoom(selectedRoom); setEditingPaymentId(null); setPaymentForm({ amount: String(getRoomBakaya(selectedRoom) || ''), mode: 'Cash', date: new Date().toISOString().split('T')[0], note: '' }); }} style={{ backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '6px 14px', borderRadius: '20px', fontWeight: '700', fontSize: '11px', cursor: 'pointer' }}>
-                  + नया जमा
+                <button onClick={() => { setPaymentModalRoom(selectedRoom); setEditingPaymentId(null); setPaymentForm({ amount: String(getRoomBakaya(selectedRoom) || ''), mode: 'Cash', date: new Date().toISOString().split('T')[0], note: '' }); }} style={{ backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '20px', fontWeight: '700', fontSize: '11px', cursor: 'pointer' }}>
+                  + जमा दर्ज करें
                 </button>
               )}
             </div>
 
-            {(selectedRoom.payments || []).length === 0 ? (
-              <div style={{ fontSize: '12px', color: '#94a3b8', textAlign: 'center', padding: '10px 0' }}>कोई भुगतान रिकॉर्ड नहीं है।</div>
+            {getRoomLedger(selectedRoom).length === 0 ? (
+              <div style={{ fontSize: '12px', color: '#94a3b8', textAlign: 'center', padding: '10px 0' }}>कोई लेजर प्रविष्टि नहीं है।</div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {(selectedRoom.payments || []).map(p => (
-                  <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '10px 14px', borderRadius: '16px', border: '1px solid #f1f5f9', fontSize: '12px' }}>
-                    <div>
-                      <div style={{ fontWeight: '800', color: '#0284c7', fontSize: '14px' }}>
-                        ₹{p.amount} <span style={{ color: '#64748b', fontSize: '11px', fontWeight: 'normal' }}>({p.mode})</span>
-                      </div>
-                      <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-                        📅 {p.date} {p.note && `• ${p.note}`}
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      <button onClick={() => openEditPayment(p, selectedRoom)} style={{ border: '1px solid #cbd5e1', background: '#fff', padding: '4px 8px', borderRadius: '6px', fontSize: '11px', cursor: 'pointer' }}>✏️</button>
-                      <button onClick={() => handleDeletePayment(p.id, selectedRoom)} style={{ border: 'none', background: '#fee2e2', color: '#ef4444', padding: '4px 8px', borderRadius: '6px', fontSize: '11px', cursor: 'pointer' }}>🗑️</button>
-                    </div>
-                  </div>
-                ))}
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', fontSize: '11px', borderCollapse: 'collapse', textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#f0f9ff', borderBottom: '1.5px solid #bae6fd' }}>
+                      <th style={{ padding: '8px 4px', color: '#0369a1' }}>तारीख</th>
+                      <th style={{ padding: '8px 4px', color: '#0369a1' }}>विवरण</th>
+                      <th style={{ padding: '8px 4px', color: '#ef4444', textAlign: 'right' }}>डेबिट ₹</th>
+                      <th style={{ padding: '8px 4px', color: '#16a34a', textAlign: 'right' }}>क्रेडिट ₹</th>
+                      <th style={{ padding: '8px 4px', color: '#0284c7', textAlign: 'right' }}>बैलेंस ₹</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {getRoomLedger(selectedRoom).map((item) => (
+                      <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '8px 4px', whiteSpace: 'nowrap', color: '#475569' }}>{item.date}</td>
+                        <td style={{ padding: '8px 4px', color: '#0f172a', fontWeight: '600' }}>
+                          {item.title}
+                          {item.category === 'Payment' && item.rawPayment && (
+                            <span style={{ marginLeft: '6px' }}>
+                              <button onClick={() => openEditPayment(item.rawPayment, selectedRoom)} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '10px', color: '#0284c7' }}>✏️</button>
+                              <button onClick={() => handleDeletePayment(item.paymentId, selectedRoom)} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '10px', color: '#ef4444' }}>🗑️</button>
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ padding: '8px 4px', color: '#ef4444', fontWeight: '700', textAlign: 'right' }}>
+                          {item.debit > 0 ? `₹${item.debit}` : '-'}
+                        </td>
+                        <td style={{ padding: '8px 4px', color: '#16a34a', fontWeight: '700', textAlign: 'right' }}>
+                          {item.credit > 0 ? `₹${item.credit}` : '-'}
+                        </td>
+                        <td style={{ padding: '8px 4px', color: item.runningBalance > 0 ? '#0284c7' : '#10b981', fontWeight: '800', textAlign: 'right' }}>
+                          ₹{item.runningBalance}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ backgroundColor: '#f8fafc', borderTop: '2px solid #cbd5e1', fontWeight: '800' }}>
+                      <td colSpan={2} style={{ padding: '8px 4px', color: '#0f172a' }}>कुल योग (Total):</td>
+                      <td style={{ padding: '8px 4px', color: '#ef4444', textAlign: 'right' }}>₹{getRoomTotalDue(selectedRoom)}</td>
+                      <td style={{ padding: '8px 4px', color: '#16a34a', textAlign: 'right' }}>₹{getPaidTotal(selectedRoom)}</td>
+                      <td style={{ padding: '8px 4px', color: '#0284c7', textAlign: 'right', fontSize: '12px' }}>₹{getRoomBakaya(selectedRoom)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
               </div>
             )}
           </div>
 
+          {/* METER READING INPUT SECTION WITH DATE PICKER */}
+          {selectedRoom.status === 'occupied' && (
+            <div style={{ backgroundColor: '#fff', borderRadius: '24px', padding: '20px', border: '1px solid #f1f5f9', boxShadow: '0 4px 20px rgba(0,0,0,0.03)', marginBottom: '16px' }}>
+              <strong style={{ fontSize: '14px', display: 'block', marginBottom: '8px' }}>⚡ नई बिजली मीटर रीडिंग डालें</strong>
+              <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '10px' }}>
+                पिछली रीडिंग: <strong>{selectedRoom.currentReading || selectedRoom.initialReading}</strong>
+              </div>
+
+              <div style={{ marginBottom: '10px' }}>
+                <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', marginBottom: '4px' }}>
+                  📅 रीडिंग की तारीख चुनें (Reading Date):
+                </label>
+                <input
+                  type="date"
+                  value={(meterInputs[selectedRoom.id] || {}).date || new Date().toISOString().split('T')[0]}
+                  onChange={e => setMeterInputs({ ...meterInputs, [selectedRoom.id]: { ...(meterInputs[selectedRoom.id] || {}), date: e.target.value } })}
+                  style={{ width: '92%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '12px', outline: 'none', fontSize: '13px' }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' }}>
+                <input
+                  type="number"
+                  placeholder="वर्तमान रीडिंग"
+                  value={(meterInputs[selectedRoom.id] || {}).curr || ''}
+                  onChange={e => setMeterInputs({ ...meterInputs, [selectedRoom.id]: { ...(meterInputs[selectedRoom.id] || {}), curr: e.target.value } })}
+                  style={{ padding: '10px', border: '1px solid #cbd5e1', borderRadius: '12px', outline: 'none' }}
+                />
+                <input
+                  type="number"
+                  placeholder="दर (₹10)"
+                  value={(meterInputs[selectedRoom.id] || {}).rate || '10'}
+                  onChange={e => setMeterInputs({ ...meterInputs, [selectedRoom.id]: { ...(meterInputs[selectedRoom.id] || {}), rate: e.target.value } })}
+                  style={{ padding: '10px', border: '1px solid #cbd5e1', borderRadius: '12px', outline: 'none' }}
+                />
+              </div>
+              <button onClick={() => handleSaveBijli(selectedRoom)} style={{ width: '100%', backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '12px', borderRadius: '30px', fontWeight: '700', cursor: 'pointer' }}>
+                रीडिंग सुरक्षित करें
+              </button>
+            </div>
+          )}
+
+          {/* METER READING HISTORY */}
           <div style={{ backgroundColor: '#fff', borderRadius: '24px', padding: '20px', border: '1px solid #f1f5f9', boxShadow: '0 4px 20px rgba(0,0,0,0.03)', marginBottom: '16px' }}>
             <strong style={{ fontSize: '14px', display: 'block', marginBottom: '10px', color: '#0f172a' }}>⚡ मीटर रीडिंग इतिहास</strong>
             {(selectedRoom.electricityHistory || []).length === 0 ? (
@@ -1704,34 +1966,7 @@ export default function App() {
             )}
           </div>
 
-          {selectedRoom.status === 'occupied' && (
-            <div style={{ backgroundColor: '#fff', borderRadius: '24px', padding: '20px', border: '1px solid #f1f5f9', boxShadow: '0 4px 20px rgba(0,0,0,0.03)', marginBottom: '16px' }}>
-              <strong style={{ fontSize: '14px', display: 'block', marginBottom: '8px' }}>⚡ नई बिजली मीटर रीडिंग डालें</strong>
-              <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '10px' }}>
-                पिछली रीडिंग: <strong>{selectedRoom.currentReading || selectedRoom.initialReading}</strong>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' }}>
-                <input
-                  type="number"
-                  placeholder="वर्तमान रीडिंग"
-                  value={(meterInputs[selectedRoom.id] || {}).curr || ''}
-                  onChange={e => setMeterInputs({ ...meterInputs, [selectedRoom.id]: { ...(meterInputs[selectedRoom.id] || {}), curr: e.target.value } })}
-                  style={{ padding: '10px', border: '1px solid #cbd5e1', borderRadius: '12px', outline: 'none' }}
-                />
-                <input
-                  type="number"
-                  placeholder="दर (₹10)"
-                  value={(meterInputs[selectedRoom.id] || {}).rate || '10'}
-                  onChange={e => setMeterInputs({ ...meterInputs, [selectedRoom.id]: { ...(meterInputs[selectedRoom.id] || {}), rate: e.target.value } })}
-                  style={{ padding: '10px', border: '1px solid #cbd5e1', borderRadius: '12px', outline: 'none' }}
-                />
-              </div>
-              <button onClick={() => handleSaveBijli(selectedRoom)} style={{ width: '100%', backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '12px', borderRadius: '30px', fontWeight: '700', cursor: 'pointer' }}>
-                रीडिंग सुरक्षित करें
-              </button>
-            </div>
-          )}
-
+          {/* PREVIOUS TENANT HISTORY */}
           <div style={{ backgroundColor: '#fff', borderRadius: '24px', padding: '20px', border: '1px solid #f1f5f9', boxShadow: '0 4px 20px rgba(0,0,0,0.03)', marginBottom: '16px' }}>
             <strong style={{ fontSize: '14px', display: 'block', marginBottom: '12px', color: '#0284c7' }}>
               📜 पूर्व किरायेदारों का इतिहास
@@ -1783,7 +2018,7 @@ export default function App() {
                 </select>
               </div>
 
-              {/* LIVE PROFIT & LOSS CARD (CLICK TO OPEN EXPENSE DETAILS MODAL) */}
+              {/* LIVE PROFIT & LOSS CARD */}
               <div style={{ backgroundColor: '#fff', borderRadius: '24px', padding: '18px 20px', border: '1px solid #e2e8f0', boxShadow: '0 8px 25px rgba(0,0,0,0.05)', marginBottom: '16px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                   <span style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>📊 लाभ व हानि (P&L Summary)</span>
@@ -1894,7 +2129,7 @@ export default function App() {
                           </div>
 
                           <div style={{ display: 'flex', gap: '14px', fontSize: '12px', color: '#64748b', marginTop: '12px', paddingTop: '10px', borderTop: '1px solid #f1f5f9' }}>
-                            <span>• {room.status === 'occupied' ? 'Occupied' : 'खाली कमरा'}</span>
+                            <span>• {room.status === 'occupied' ? `${calculateChargeableMonths(room)} माह देय` : 'खाली कमरा'}</span>
                             <span>• बकाया: <strong style={{ color: getRoomBakaya(room) > 0 ? '#0284c7' : '#10b981' }}>₹{getRoomBakaya(room)}</strong></span>
                           </div>
                         </div>
@@ -1997,7 +2232,7 @@ export default function App() {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <div>
                             <strong style={{ fontSize: '16px', color: '#0f172a' }}>{room.roomNo}</strong> ({room.status === 'occupied' ? (room.tenant || 'किरायेदार') : 'खाली'})
-                            <div style={{ fontSize: '12px', color: '#64748b' }}>🏢 {room.propName}</div>
+                            <div style={{ fontSize: '12px', color: '#64748b' }}>🏢 {room.propName} • {calculateChargeableMonths(room)} माह</div>
                           </div>
                           <div style={{ textAlign: 'right' }}>
                             <span style={{ fontSize: '11px', color: '#64748b' }}>बकाया:</span>
@@ -2011,7 +2246,7 @@ export default function App() {
 
                         <div style={{ display: 'flex', gap: '8px' }}>
                           <button onClick={() => setSelectedRoomId(room.id)} style={{ flex: 1, backgroundColor: '#f0f9ff', color: '#0284c7', border: '1px solid #bae6fd', padding: '8px', borderRadius: '20px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>
-                            विवरण देखें
+                            विस्तृत लेजर देखें
                           </button>
                           {room.status === 'occupied' && (
                             <button onClick={() => { setPaymentModalRoom(room); setEditingPaymentId(null); setPaymentForm({ amount: String(bakaya || ''), mode: 'Cash', date: new Date().toISOString().split('T')[0], note: '' }); }} style={{ flex: 1, backgroundColor: '#0284c7', color: '#fff', border: 'none', padding: '8px', borderRadius: '20px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>
@@ -2026,7 +2261,7 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB: DAINIK KHARCHA (EXPENSES WITH DATE RANGE & ROOM FILTER) */}
+          {/* TAB: DAINIK KHARCHA */}
           {activeTab === 'expenses' && (
             <div style={{ padding: '16px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
@@ -2131,11 +2366,12 @@ export default function App() {
             </div>
           )}
 
+          {/* TAB: REPORT */}
           {activeTab === 'report' && (
             <div style={{ padding: '16px' }}>
               <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
                 <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  📊 विस्तृत रिपोर्ट
+                  📊 विस्तृत रिपोर्ट (Report & Ledger)
                 </h2>
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                   <button onClick={handleShareReport} style={{ backgroundColor: '#25D366', color: '#fff', border: 'none', padding: '8px 14px', borderRadius: '20px', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}>
@@ -2150,7 +2386,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* REPORT ROOM & DATE RANGE FILTER CONTROLS */}
+              {/* REPORT CONTROLS */}
               <div className="no-print" style={{ backgroundColor: '#fff', padding: '14px', borderRadius: '20px', border: '1px solid #f1f5f9', boxShadow: '0 4px 15px rgba(0,0,0,0.02)', marginBottom: '14px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
                   <div>
@@ -2163,7 +2399,7 @@ export default function App() {
                   <div>
                     <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>कमरा चुनें (1 कमरा या सभी):</label>
                     <select value={reportFilter.roomId} onChange={e => setReportFilter({ ...reportFilter, roomId: e.target.value })} style={{ width: '100%', padding: '8px', borderRadius: '12px', border: '1px solid #cbd5e1', marginTop: '4px', fontWeight: '700', outline: 'none' }}>
-                      <option value="all">सभी कमरे (All Rooms)</option>
+                      <option value="all">सभी कमरे (Summary Table)</option>
                       {rooms
                         .filter(r => reportFilter.propName === 'all' || r.propName === reportFilter.propName)
                         .map(r => <option key={r.id} value={r.id}>{r.roomNo} ({r.tenant || 'खाली'})</option>)
@@ -2195,50 +2431,153 @@ export default function App() {
                 </div>
               </div>
 
-              {/* REPORT STATEMENT TABLE */}
-              <div style={{ backgroundColor: '#fff', padding: '16px', borderRadius: '24px', border: '1px solid #f1f5f9', boxShadow: '0 6px 20px rgba(0,0,0,0.03)' }}>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse', textAlign: 'left' }}>
-                    <thead>
-                      <tr style={{ borderBottom: '2px solid #0284c7', backgroundColor: '#f0f9ff' }}>
-                        <th style={{ padding: '10px 6px', fontWeight: '800', color: '#0f172a' }}>कमरा</th>
-                        <th style={{ padding: '10px 6px', fontWeight: '800', color: '#0f172a' }}>किरायेदार</th>
-                        <th style={{ padding: '10px 6px', fontWeight: '800', color: '#0f172a' }}>किराया</th>
-                        <th style={{ padding: '10px 6px', fontWeight: '800', color: '#0f172a' }}>बिजली बिल</th>
-                        <th style={{ padding: '10px 6px', fontWeight: '800', color: '#0f172a' }}>जमा विवरण</th>
-                        <th style={{ padding: '10px 6px', fontWeight: '800', color: '#0284c7' }}>बकाया</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rooms
-                        .filter(r => reportFilter.propName === 'all' || r.propName === reportFilter.propName)
-                        .filter(r => reportFilter.roomId === 'all' || r.id === reportFilter.roomId)
-                        .filter(r => {
-                          const s = (tabSearches.report || '').toLowerCase();
-                          if (!s) return true;
-                          return r.roomNo.toLowerCase().includes(s) || (r.tenant && r.tenant.toLowerCase().includes(s)) || (r.phone && r.phone.includes(s));
-                        })
-                        .map(r => {
-                          const pList = getFilteredPaymentsForReport(r);
-                          const bList = getFilteredBijliForReport(r);
-                          const bTotal = bList.reduce((acc, curr) => acc + (Number(curr.bill) || 0), 0);
-                          const pTotal = pList.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+              {/* IF SINGLE ROOM IS SELECTED IN REPORT: SHOW DETAILED DEBIT/CREDIT LEDGER TABLE */}
+              {reportFilter.roomId !== 'all' ? (
+                (() => {
+                  const targetRoom = rooms.find(r => r.id === reportFilter.roomId);
+                  if (!targetRoom) return <div style={{ textAlign: 'center', color: '#64748b' }}>कमरा नहीं मिला।</div>;
+                  const roomLedger = getFilteredLedgerForReport(targetRoom);
+                  const totalDeb = roomLedger.reduce((acc, curr) => acc + curr.debit, 0);
+                  const totalCred = roomLedger.reduce((acc, curr) => acc + curr.credit, 0);
+
+                  return (
+                    <div style={{ backgroundColor: '#fff', padding: '16px', borderRadius: '24px', border: '1px solid #f1f5f9', boxShadow: '0 6px 20px rgba(0,0,0,0.03)' }}>
+                      <div style={{ marginBottom: '12px' }}>
+                        <strong style={{ fontSize: '16px', color: '#0f172a' }}>🚪 {targetRoom.roomNo} का खाता बही लेजर</strong>
+                        <div style={{ fontSize: '12px', color: '#64748b' }}>
+                          किरायेदार: <b>{targetRoom.tenant || 'खाली'}</b> • प्रवेश: {targetRoom.moveInDate || '-'} • कुल माह: {calculateChargeableMonths(targetRoom)}
+                        </div>
+                      </div>
+
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', fontSize: '11px', borderCollapse: 'collapse', textAlign: 'left' }}>
+                          <thead>
+                            <tr style={{ backgroundColor: '#f0f9ff', borderBottom: '2px solid #0284c7' }}>
+                              <th style={{ padding: '8px 4px', color: '#0f172a', fontWeight: '800' }}>तारीख</th>
+                              <th style={{ padding: '8px 4px', color: '#0f172a', fontWeight: '800' }}>विवरण</th>
+                              <th style={{ padding: '8px 4px', color: '#ef4444', fontWeight: '800', textAlign: 'right' }}>डेबिट ₹</th>
+                              <th style={{ padding: '8px 4px', color: '#16a34a', fontWeight: '800', textAlign: 'right' }}>क्रेडिट ₹</th>
+                              <th style={{ padding: '8px 4px', color: '#0284c7', fontWeight: '800', textAlign: 'right' }}>बैलेंस ₹</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {roomLedger.length === 0 ? (
+                              <tr>
+                                <td colSpan={5} style={{ textAlign: 'center', padding: '16px', color: '#94a3b8' }}>
+                                  इस अवधि में कोई प्रविष्टि नहीं मिली।
+                                </td>
+                              </tr>
+                            ) : (
+                              roomLedger.map((row) => (
+                                <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                  <td style={{ padding: '8px 4px', whiteSpace: 'nowrap', color: '#475569' }}>{row.date}</td>
+                                  <td style={{ padding: '8px 4px', color: '#0f172a', fontWeight: '600' }}>{row.title}</td>
+                                  <td style={{ padding: '8px 4px', color: '#ef4444', fontWeight: '700', textAlign: 'right' }}>
+                                    {row.debit > 0 ? `₹${row.debit}` : '-'}
+                                  </td>
+                                  <td style={{ padding: '8px 4px', color: '#16a34a', fontWeight: '700', textAlign: 'right' }}>
+                                    {row.credit > 0 ? `₹${row.credit}` : '-'}
+                                  </td>
+                                  <td style={{ padding: '8px 4px', color: row.runningBalance > 0 ? '#0284c7' : '#10b981', fontWeight: '800', textAlign: 'right' }}>
+                                    ₹{row.runningBalance}
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                          <tfoot>
+                            <tr style={{ backgroundColor: '#f8fafc', borderTop: '2px solid #cbd5e1', fontWeight: '800' }}>
+                              <td colSpan={2} style={{ padding: '8px 4px', color: '#0f172a' }}>कुल योग (Total):</td>
+                              <td style={{ padding: '8px 4px', color: '#ef4444', textAlign: 'right' }}>₹{totalDeb}</td>
+                              <td style={{ padding: '8px 4px', color: '#16a34a', textAlign: 'right' }}>₹{totalCred}</td>
+                              <td style={{ padding: '8px 4px', color: '#0284c7', textAlign: 'right', fontSize: '13px' }}>₹{getRoomBakaya(targetRoom)}</td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })()
+              ) : (
+                /* ALL ROOMS SUMMARY TABLE WITH COMPREHENSIVE FOOTER TOTALS */
+                <div style={{ backgroundColor: '#fff', padding: '16px', borderRadius: '24px', border: '1px solid #f1f5f9', boxShadow: '0 6px 20px rgba(0,0,0,0.03)' }}>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse', textAlign: 'left' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '2px solid #0284c7', backgroundColor: '#f0f9ff' }}>
+                          <th style={{ padding: '10px 6px', fontWeight: '800', color: '#0f172a' }}>कमरा</th>
+                          <th style={{ padding: '10px 6px', fontWeight: '800', color: '#0f172a' }}>किरायेदार</th>
+                          <th style={{ padding: '10px 6px', fontWeight: '800', color: '#0f172a' }}>किराया</th>
+                          <th style={{ padding: '10px 6px', fontWeight: '800', color: '#0f172a' }}>बिजली बिल</th>
+                          <th style={{ padding: '10px 6px', fontWeight: '800', color: '#0f172a' }}>कुल जमा</th>
+                          <th style={{ padding: '10px 6px', fontWeight: '800', color: '#0284c7' }}>बकाया</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(() => {
+                          const matchedRooms = rooms
+                            .filter(r => reportFilter.propName === 'all' || r.propName === reportFilter.propName)
+                            .filter(r => {
+                              const s = (tabSearches.report || '').toLowerCase();
+                              if (!s) return true;
+                              return r.roomNo.toLowerCase().includes(s) || (r.tenant && r.tenant.toLowerCase().includes(s)) || (r.phone && r.phone.includes(s));
+                            });
+
+                          let sumRent = 0;
+                          let sumBijli = 0;
+                          let sumPaid = 0;
+                          let sumBakaya = 0;
+
+                          const rows = matchedRooms.map(r => {
+                            const ledger = getFilteredLedgerForReport(r);
+                            const rRent = ledger.filter(x => x.category === 'Rent').reduce((acc, curr) => acc + curr.debit, 0);
+                            const rBijli = ledger.filter(x => x.category === 'Electricity').reduce((acc, curr) => acc + curr.debit, 0);
+                            const rPaid = ledger.filter(x => x.category === 'Payment').reduce((acc, curr) => acc + curr.credit, 0);
+                            const rBakaya = getRoomBakaya(r);
+
+                            sumRent += rRent;
+                            sumBijli += rBijli;
+                            sumPaid += rPaid;
+                            sumBakaya += rBakaya;
+
+                            return (
+                              <tr 
+                                key={r.id} 
+                                onClick={() => setReportFilter({ ...reportFilter, roomId: r.id })}
+                                style={{ borderBottom: '1px solid #f1f5f9', verticalAlign: 'top', cursor: 'pointer' }}
+                                title="क्लिक करके विस्तृत लेजर देखें"
+                              >
+                                <td style={{ padding: '10px 6px', fontWeight: '800', color: '#0284c7' }}>{r.roomNo} ↗</td>
+                                <td style={{ padding: '10px 6px', color: '#475569' }}>{r.status === 'occupied' ? (r.tenant || 'किरायेदार') : 'खाली'}</td>
+                                <td style={{ padding: '10px 6px', fontWeight: '600' }}>₹{rRent}</td>
+                                <td style={{ padding: '10px 6px', color: '#64748b' }}>₹{rBijli}</td>
+                                <td style={{ padding: '10px 6px', color: '#10b981', fontWeight: '600' }}>₹{rPaid}</td>
+                                <td style={{ padding: '10px 6px', color: '#0284c7', fontWeight: '800' }}>₹{rBakaya}</td>
+                              </tr>
+                            );
+                          });
 
                           return (
-                            <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9', verticalAlign: 'top' }}>
-                              <td style={{ padding: '10px 6px', fontWeight: '800', color: '#0f172a' }}>{r.roomNo}</td>
-                              <td style={{ padding: '10px 6px', color: '#475569' }}>{r.status === 'occupied' ? (r.tenant || 'किरायेदार') : 'खाली'}</td>
-                              <td style={{ padding: '10px 6px', fontWeight: '600' }}>₹{getRentTotalDue(r)}</td>
-                              <td style={{ padding: '10px 6px', color: '#64748b' }}>₹{bTotal}</td>
-                              <td style={{ padding: '10px 6px', color: '#10b981', fontWeight: '600' }}>₹{pTotal}</td>
-                              <td style={{ padding: '10px 6px', color: '#0284c7', fontWeight: '800' }}>₹{getRoomBakaya(r)}</td>
-                            </tr>
+                            <>
+                              {rows}
+                              <tr style={{ backgroundColor: '#f8fafc', borderTop: '2px solid #0284c7', fontWeight: '900', fontSize: '12px' }}>
+                                <td colSpan={2} style={{ padding: '12px 6px', color: '#0f172a' }}>कुल महायोग (Grand Total):</td>
+                                <td style={{ padding: '12px 6px', color: '#0f172a' }}>₹{sumRent.toLocaleString()}</td>
+                                <td style={{ padding: '12px 6px', color: '#64748b' }}>₹{sumBijli.toLocaleString()}</td>
+                                <td style={{ padding: '12px 6px', color: '#10b981' }}>₹{sumPaid.toLocaleString()}</td>
+                                <td style={{ padding: '12px 6px', color: '#0284c7', fontSize: '14px' }}>₹{sumBakaya.toLocaleString()}</td>
+                              </tr>
+                            </>
                           );
-                        })}
-                    </tbody>
-                  </table>
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '10px', textAlign: 'center' }}>
+                    💡 किसी भी कमरे पर क्लिक करके उसका संपूर्ण डेबिट-क्रेडिट खाता विवरण देख सकते हैं।
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
         </>
